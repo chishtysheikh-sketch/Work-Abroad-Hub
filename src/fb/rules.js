@@ -52,11 +52,21 @@ export async function canRead(col, id, data, uid, load, cache) {
   return false;
 }
 
+export const NEED_VERIFY = "Please verify your email first. Check your inbox (and spam).";
+
 // op = "create" | "update" | "delete". Returns "" when allowed, otherwise a reason.
-export async function canWrite(op, col, id, oldData, newData, uid, load) {
+// ctx.verified = has the caller confirmed their email?
+export async function canWrite(op, col, id, oldData, newData, uid, load, ctx = {}) {
   if (!uid) return "Please log in.";
   const { top, parentId, sub } = colInfo(col);
   const n = newData || {}, o = oldData || {};
+
+  // unverified accounts may save their own profile (sign-up needs it), but not post, apply or chat
+  if (!ctx.verified) {
+    const posting = top === "postings" && !sub && op !== "delete";
+    const creates = op === "create" && ((top === "applications" && !sub) || top === "chats");
+    if (posting || creates) return NEED_VERIFY;
+  }
 
   if (top === "users" && !sub) {
     if (uid !== id) return "Not your profile.";

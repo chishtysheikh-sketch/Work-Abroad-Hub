@@ -2,6 +2,7 @@
 //   /api/fb/auth/...  → sign up, log in, log out, who am I, delete account
 //   /api/fb/doc|query|write → read and save data (security rules checked every time)
 import { Router } from "express";
+import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import User from "../models/User.js";
@@ -10,6 +11,9 @@ import { setAuthCookie, clearAuthCookie, COOKIE_NAME } from "../middleware/auth.
 import { checkToken, forgetSession } from "../utils/session.js";
 import { validatePassword } from "../utils/password.js";
 import { passwordLogin, BCRYPT_COST } from "../utils/login.js";
+import { checkEmail, normalizeEmail } from "../utils/email.js";
+import { sendMail, emailTemplate } from "../utils/mailer.js";
+import { env } from "../config/env.js";
 import { readDoc, runQuery, writeDoc, FbError } from "../fb/core.js";
 import { notify } from "../sockets/fbLive.js";
 
@@ -17,12 +21,31 @@ const router = Router();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const fail = (res, status, code, error) => res.status(status).json({ code, error });
-const shape = u => ({ uid: String(u._id), email: u.email, displayName: u.name || "" });
+const shape = u => ({ uid: String(u._id), email: u.email, displayName: u.name || "", emailVerified: !!u.emailVerified });
 
 // who is calling? (null = logged out, logged out everywhere, blocked or deleted)
 async function uidOf(req) {
   const t = await checkToken(req.cookies?.[COOKIE_NAME]);
   return t ? t.id : null;
+}
+
+// ---------- email verification helpers ----------
+const sha256 = s => crypto.createHash("sha256").update(s).digest("hex");
+const today = () => new Date().toISOString().slice(0, 10);
+
+// new link token: the email gets the token, the database only keeps its hash (valid 24 h)
+function newVerifyFields() {
+  const token = crypto.randomBytes(32).toString("hex");
+  return { token, set: { emailVerifyHash: sha256(token), emailVerifyExp: new Date(Date.now() + 24 * 3600 * 1000), emailVerifySentAt: new Date() } };
+}
+
+function sendVerifyEmail(email, token) {
+  const url = `${env.APP_URL}/api/fb/auth/verify-email?token=${token}`;
+  return sendMail({ to: email, subject: "Confirm your email", ...emailTemplate({
+    title: "Confirm your email",
+    lines: ["Welcome to Work Abroad Hub! 👋", "Please confirm this is your email address. After that you can post jobs, apply and chat."],
+    button: "Confirm my email", url, note: "This link works for 24 hours.",
+  }) });
 }
 
 const limiter = (windowMs, limit, code, error) => rateLimit({
@@ -35,17 +58,21 @@ const readLimiter  = limiter(60 * 1000, 300, "resource-exhausted", "Too many req
 
 // ---------- auth ----------
 router.post("/auth/signup", authLimiter, async (req, res) => {
-  const email = String(req.body?.email || "").trim().toLowerCase();
+  const email = normalizeEmail(req.body?.email);
   const password = String(req.body?.password || "");
-  if (!EMAIL_RE.test(email) || email.length > 120) return fail(res, 400, "auth/invalid-email", "Please enter a valid email.");
+  const bad = await checkEmail(email);            // format, typos, temporary inboxes, domain can receive mail
+  if (bad) return fail(res, 400, "auth/invalid-email", bad);
   const weak = validatePassword(password, email);
   if (weak) return fail(res, 400, "auth/weak-password", weak);
   if (await User.exists({ email })) return fail(res, 409, "auth/email-already-in-use", "This email already has an account.");
+  const v = newVerifyFields();
   const user = await User.create({
     email, passwordHash: await bcrypt.hash(password, BCRYPT_COST),
     role: "student",                       // becomes the real role when the profile form is saved
     name: email.split("@")[0].slice(0, 60), agreedAt: new Date(),
+    ...v.set, emailVerifyCount: 1, emailVerifyDay: today(),
   });
+  sendVerifyEmail(email, v.token);         // not awaited: sign-up stays fast; failures are logged
   setAuthCookie(res, user);
   res.status(201).json({ user: shape(user) });
 });
@@ -60,6 +87,37 @@ router.post("/auth/login", authLimiter, async (req, res) => {
 });
 
 router.post("/auth/logout", (req, res) => { clearAuthCookie(res); res.json({ ok: true }); });
+
+// the link in the "Confirm your email" email
+const verifyLimiter = limiter(15 * 60 * 1000, 30, "auth/too-many-requests", "Too many tries. Wait a moment.");
+router.get("/auth/verify-email", verifyLimiter, async (req, res) => {
+  const token = String(req.query.token || "");
+  if (!/^[a-f0-9]{64}$/.test(token)) return res.redirect("/?verified=expired");
+  const user = await User.findOneAndUpdate(
+    { emailVerifyHash: sha256(token), emailVerifyExp: { $gt: new Date() } },
+    { $set: { emailVerified: true }, $unset: { emailVerifyHash: 1, emailVerifyExp: 1 } });
+  if (!user) return res.redirect("/?verified=expired");
+  forgetSession(user._id);                 // so posting works right away, not after the 30 s cache
+  res.redirect("/?verified=1");
+});
+
+// "Resend email" button: max 1 per minute and 5 per day
+router.post("/auth/resend-verification", authLimiter, async (req, res) => {
+  const uid = await uidOf(req);
+  if (!uid) return fail(res, 401, "auth/requires-recent-login", "Please log in.");
+  const user = await User.findById(uid);
+  if (!user) return fail(res, 401, "auth/requires-recent-login", "Please log in.");
+  if (user.emailVerified) return res.json({ ok: true, alreadyVerified: true });
+  if (user.emailVerifySentAt && Date.now() - user.emailVerifySentAt < 60 * 1000)
+    return fail(res, 429, "auth/too-many-requests", "Please wait a minute before asking for another email.");
+  const count = user.emailVerifyDay === today() ? (user.emailVerifyCount || 0) : 0;
+  if (count >= 5) return fail(res, 429, "auth/too-many-requests", "You can resend the email 5 times a day. Please try again tomorrow.");
+  const v = newVerifyFields();
+  await User.updateOne({ _id: uid }, { $set: { ...v.set, emailVerifyCount: count + 1, emailVerifyDay: today() } });
+  const r = await sendVerifyEmail(user.email, v.token);
+  if (r.failed) return fail(res, 502, "unavailable", "We couldn't send the email right now. Please try again later.");
+  res.json({ ok: true });
+});
 
 // log out on every device: old cookies stop working because tokenVersion changes
 router.post("/auth/logout-all", async (req, res) => {
@@ -99,10 +157,11 @@ router.post("/query", readLimiter, async (req, res) => {
 });
 
 router.post("/write", writeLimiter, async (req, res) => {
-  const uid = await uidOf(req);
+  const t = await checkToken(req.cookies?.[COOKIE_NAME]);
+  const uid = t ? t.id : null;
   const { op, path, data, merge } = req.body || {};
   if (!["set", "update", "delete", "add"].includes(op)) throw new FbError("invalid-argument", "Bad op");
-  const out = await writeDoc({ op, path, data, merge: !!merge }, uid);
+  const out = await writeDoc({ op, path, data, merge: !!merge }, uid, { verified: !!(t && t.verified) });
 
   // keep the login account's role/name in step with the website profile
   if (out.col === "users" && out.data && out.id === uid) {

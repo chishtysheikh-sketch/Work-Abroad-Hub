@@ -4,12 +4,21 @@
 import "dotenv/config";
 import { z } from "zod";
 
+// empty values in .env (e.g. "SMTP_PASS=") count as "not set"
+const optional = (s) => z.preprocess(v => (v === "" ? undefined : v), s.optional());
+
 const schema = z.object({
   MONGODB_URI: z.string().min(1, "is required (e.g. mongodb://127.0.0.1:27017/workabroadhub)"),
   JWT_SECRET:  z.string().min(32, "must be at least 32 characters (make one with: node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\")"),
   PORT:        z.coerce.number().int().positive().default(4000),
   NODE_ENV:    z.enum(["development", "production", "test"]).default("development"),
   APP_URL:     z.url().default("http://localhost:4000"),
+  // email (optional: without them, emails are printed in the console)
+  SMTP_HOST:   optional(z.string()),
+  SMTP_PORT:   optional(z.coerce.number().int().positive()),
+  SMTP_USER:   optional(z.string()),
+  SMTP_PASS:   optional(z.string().transform(s => s.replace(/\s+/g, ""))),   // Gmail shows it with spaces
+  MAIL_FROM:   optional(z.string()),
 });
 
 const result = schema.safeParse(process.env);

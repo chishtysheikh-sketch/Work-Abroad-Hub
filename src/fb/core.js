@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import FbDoc from "../models/FbDoc.js";
-import { canRead, canWrite } from "./rules.js";
+import { canRead, canWrite, NEED_VERIFY } from "./rules.js";
 
 // ---------- small helpers ----------
 export class FbError extends Error {
@@ -88,7 +88,7 @@ export async function runQuery(path, q = {}, uid) {
 
 // ---------- write ----------
 // op: "set" (merge or not) | "update" | "delete" | "add"
-export async function writeDoc({ op, path, data, merge }, uid) {
+export async function writeDoc({ op, path, data, merge }, uid, ctx = {}) {
   if (op !== "delete") {
     if (!isObj(data)) throw new FbError("invalid-argument", "Data must be an object");
     checkData(data);
@@ -107,8 +107,8 @@ export async function writeDoc({ op, path, data, merge }, uid) {
 
   const kind = op === "delete" ? "delete" : old ? "update" : "create";
   if (kind === "delete" && !old) return { id, col };
-  const why = await canWrite(kind, col, id, old, next, uid, load);
-  if (why) throw new FbError("permission-denied", why, 403);
+  const why = await canWrite(kind, col, id, old, next, uid, load, ctx);
+  if (why) throw new FbError(why === NEED_VERIFY ? "failed-precondition" : "permission-denied", why, 403);
 
   if (kind === "delete") await FbDoc.deleteOne({ col, docId: id });
   else if (kind === "create") {
