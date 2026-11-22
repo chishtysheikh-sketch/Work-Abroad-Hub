@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Work Abroad Hub — Part-time Jobs for International Students in Korea</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="style.css?v=1795300302">
+</head>
+<body>
+
+<div class="notice" data-i18n="notice"><b>2026 rules:</b> minimum wage is ₩10,320/hr · You need an immigration part-time work permit <b>before</b> your first shift.</div>
+
+<header>
+  <div class="wrap nav">
+    <a href="#top" class="logo"><div class="logo-mark">W</div>Work Abroad <span style="color:var(--brand)">Hub</span></a>
+    <nav class="nav-links" id="navLinks">
+      <a href="#jobs" data-i18n="navJobs">Find jobs</a>
+      <a href="#tools" data-i18n="navTools">Visa hours &amp; pay</a>
+      <a href="#guide" data-i18n="navGuide">Work permit guide</a>
+      <a href="#faq">FAQ</a>
+      <a href="#employers" data-i18n="navEmp">For employers</a>
+    </nav>
+    <div class="nav-right">
+      <div class="lang"><button class="on" data-lang="en">EN</button><button data-lang="ko">한국어</button></div>
+      <button class="theme-btn" id="themeBtn" aria-label="Dark mode" title="Dark mode">🌙</button>
+      <button class="btn btn-ghost" id="savedBtn"><span data-i18n="saved">Saved</span><span class="saved-count" id="savedCount">0</span></button>
+      <div id="authArea" class="auth-area"></div>
+      <button class="burger" id="burger" aria-label="Menu">☰</button>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+<!-- HERO -->
+<div class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="pill"><span>D-2 · D-4</span> <span style="background:none;color:inherit;padding:0" data-i18n="pill">Visa-friendly jobs only</span></div>
+      <h1 data-i18n-html="h1">Part-time jobs in Korea, <em>made for international students.</em></h1>
+      <p class="lead" data-i18n="lead">Every listing says what Korean level you need, whether English is OK, and fits within student-visa work rules. Find a shift, check your hours, apply in minutes.</p>
+
+      <form class="search" id="heroSearch">
+        <div class="field"><label data-i18n="what">What</label><input id="qInput" placeholder="Café, tutoring, translation…"></div>
+        <div class="field"><label data-i18n="where">Where</label>
+          <select id="cityInput"><option value="">All cities</option></select></div>
+        <div class="field"><label data-i18n="korean">Korean level</label>
+          <select id="levelInput">
+            <option value="">Any</option>
+            <option value="0">No Korean needed</option>
+            <option value="1">Basic (TOPIK 1–2)</option>
+            <option value="3">Intermediate (TOPIK 3–4)</option>
+            <option value="5">Advanced (TOPIK 5+)</option>
+          </select></div>
+        <button class="btn btn-primary" type="submit" data-i18n="search">Search</button>
+      </form>
+      <div class="popular"><span data-i18n="popular">Popular:</span>
+        <button data-q="English">English OK</button>
+        <button data-q="Weekend">Weekend only</button>
+        <button data-q="Tutor">Tutoring</button>
+        <button data-q="Translation">Translation</button>
+        <button data-q="Remote">Remote</button>
+      </div>
+    </div>
+
+    <div class="hero-card">
+      <span class="tag-live">2026</span>
+      <h3 data-i18n="minWage">Korea minimum wage</h3>
+      <div class="wage">₩10,320<small> / hour</small></div>
+      <div class="sub" data-i18n="minWageSub">Same for everyone — foreign students included. ₩10,700 from Jan 2027.</div>
+      <div class="mini-rows">
+        <div class="mini"><span data-i18n="m1">Undergrad · semester (TOPIK 3+)</span><b>25 h/wk</b></div>
+        <div class="mini"><span data-i18n="m2">Graduate · semester (TOPIK 4+)</span><b>30 h/wk</b></div>
+        <div class="mini"><span data-i18n="m3">Weekends &amp; vacation (if level met)</span><b data-i18n="nolimit">No limit</b></div>
+      </div>
+      <div class="float"><div class="dot">₩</div><div><div style="color:var(--muted);font-weight:500" data-i18n="avgPay">Avg. pay on Work Abroad Hub</div><span id="avgPay">₩12,400/hr</span></div></div>
+    </div>
+  </div>
+
+  <div class="wrap stats">
+    <div class="stat"><b id="statJobs">0</b><span data-i18n="s1">open listings</span></div>
+    <div class="stat"><b id="statEnglish">0</b><span data-i18n="s2">English-OK jobs</span></div>
+    <div class="stat"><b id="statCities">0</b><span data-i18n="s3">cities covered</span></div>
+    <div class="stat"><b>100%</b><span data-i18n="s4">at or above min. wage</span></div>
+  </div>
+</div>
+
+<!-- CATEGORIES -->
+<section style="padding-top:20px">
+  <div class="wrap">
+    <div class="sec-head"><div><div class="eyebrow" data-i18n="browse">Browse</div><h2 data-i18n="byCat">Jobs by category</h2></div></div>
+    <div class="cats" id="cats"></div>
+  </div>
+</section>
+
+<!-- RECOMMENDED FOR YOU (students) -->
+<section id="forYou" style="display:none;padding-top:20px">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><div class="eyebrow">For you</div><h2 id="fyTitle">Recommended for you</h2></div>
+      <p id="fyNote"></p>
+    </div>
+    <div class="fy-list" id="fyList"></div>
+  </div>
+</section>
+
+<!-- JOBS -->
+<section id="jobs" style="padding-top:20px">
+  <div class="wrap">
+    <div class="sec-head">
+      <div><div class="eyebrow" data-i18n="latest">Latest</div><h2 data-i18n="openPos">Open positions</h2></div>
+      <p data-i18n="jobsNote">Tap a job to see details and apply. Save jobs with the bookmark to compare later.</p>
+    </div>
+    <div class="jobs-layout">
+      <aside class="filters" id="filters">
+        <h4 data-i18n="fType">Job type</h4>
+        <div id="fCats"></div>
+        <h4 data-i18n="fSchedule">Schedule</h4>
+        <label class="chk"><input type="checkbox" data-flag="weekend"> <span data-i18n="weekendOnly">Weekend only</span></label>
+        <label class="chk"><input type="checkbox" data-flag="evening"> <span data-i18n="evening">Evenings</span></label>
+        <label class="chk"><input type="checkbox" data-flag="remote"> <span data-i18n="remote">Remote</span></label>
+        <h4 data-i18n="fLang">Language</h4>
+        <label class="chk"><input type="checkbox" data-flag="english"> <span data-i18n="engOk">English OK</span></label>
+        <label class="chk"><input type="checkbox" data-flag="noexp"> <span data-i18n="noExp">No experience</span></label>
+        <h4 data-i18n="fPay">Minimum pay</h4>
+        <input type="range" class="range" id="payRange" min="10320" max="30000" step="500" value="10320">
+        <div class="range-val" id="payVal">₩10,320+/hr</div>
+        <button class="btn btn-ghost clear" id="clearBtn" data-i18n="clear">Clear filters</button>
+      </aside>
+      <div>
+        <div class="toolbar">
+          <div class="count" id="count"></div>
+          <select id="sort">
+            <option value="new">Newest first</option>
+            <option value="pay">Highest pay</option>
+            <option value="korean">Least Korean needed</option>
+            <option value="near">📍 Closest to me</option>
+            <option value="match">⭐ Best match for me</option>
+          </select>
+        </div>
+        <div class="active-chips" id="chips"></div>
+        <div class="job-list" id="jobList"></div>
+        <button class="btn btn-ghost more" id="moreBtn" data-i18n="more">Show more jobs</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TOOLS -->
+<section id="tools">
+  <div class="wrap">
+    <div class="sec-head"><div><div class="eyebrow" data-i18n="tools">Free tools</div><h2 data-i18n="toolsH">Know your hours. Know your pay.</h2></div>
+      <p data-i18n="toolsP">Working over your permitted hours can cost you your visa. Check before you accept a schedule.</p></div>
+    <div class="tools">
+      <div class="tool">
+        <h3 data-i18n="hoursH">Visa work-hours checker</h3>
+        <p data-i18n="hoursP">Based on the 2026 Ministry of Justice rules for D-2 / D-4 students.</p>
+        <div class="form-row">
+          <div class="inp"><label data-i18n="program">Program</label>
+            <select id="hProg">
+              <option value="d4">Korean language course (D-4)</option>
+              <option value="ug12" selected>Undergraduate — year 1–2</option>
+              <option value="ug34">Undergraduate — year 3–4</option>
+              <option value="grad">Master's / PhD</option>
+            </select></div>
+          <div class="inp"><label data-i18n="topik">Korean level</label>
+            <select id="hTopik">
+              <option value="0">No TOPIK</option><option value="1">TOPIK 1</option><option value="2">TOPIK 2</option>
+              <option value="3" selected>TOPIK 3</option><option value="4">TOPIK 4</option><option value="5">TOPIK 5–6</option>
+            </select></div>
+        </div>
+        <div class="inp"><label data-i18n="planned">Hours you plan to work on weekdays (per week)</label>
+          <input type="number" id="hPlan" value="20" min="0" max="60"></div>
+        <div class="result" id="hResult"></div>
+        <p class="fine" data-i18n="hoursFine">English-track students may use an English score instead of TOPIK. Certified universities and students with strong grades may get extra hours. Always confirm on HiKorea or with your international office.</p>
+      </div>
+
+      <div class="tool">
+        <h3 data-i18n="payH">Pay calculator (주휴수당 included)</h3>
+        <p data-i18n="payP">If you work 15+ hours a week, Korean law adds a paid weekly holiday allowance.</p>
+        <div class="form-row">
+          <div class="inp"><label data-i18n="wageL">Hourly wage (₩)</label><input type="number" id="pWage" value="10320" min="0" step="10"></div>
+          <div class="inp"><label data-i18n="hrsL">Hours per week</label><input type="number" id="pHours" value="20" min="0" max="60"></div>
+        </div>
+        <div class="result" id="pResult"></div>
+        <p class="fine" data-i18n="payFine">Estimate only. Weekly holiday pay applies when you complete your scheduled days that week. 3.3% tax is often withheld for freelance-type contracts.</p>
+      </div>
+    </div>
+
+    <table>
+      <thead><tr><th data-i18n="tProg">Program</th><th data-i18n="tLevel">Korean requirement</th><th data-i18n="tNot">Below requirement</th><th data-i18n="tMet">Requirement met</th><th data-i18n="tWknd">Weekends / vacation</th></tr></thead>
+      <tbody>
+        <tr><td>D-4 Korean course</td><td>TOPIK 2 / KIIP 2</td><td>10 h/wk</td><td><b>20 h/wk</b></td><td>Check with school</td></tr>
+        <tr><td>Undergrad yr 1–2</td><td>TOPIK 3 / KIIP 3</td><td>10 h/wk</td><td><b>25 h/wk</b></td><td><b>No limit</b> (if met)</td></tr>
+        <tr><td>Undergrad yr 3–4</td><td>TOPIK 4 / KIIP 4</td><td>10 h/wk</td><td><b>25 h/wk</b></td><td><b>No limit</b> (if met)</td></tr>
+        <tr><td>Master's / PhD</td><td>TOPIK 4 / KIIP 4</td><td>15 h/wk</td><td><b>30 h/wk</b></td><td><b>No limit</b> (if met)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- GUIDE -->
+<section id="guide">
+  <div class="wrap">
+    <div class="sec-head"><div><div class="eyebrow" data-i18n="guide">Guide</div><h2 data-i18n="guideH">Get your part-time work permit in 4 steps</h2></div>
+      <p data-i18n="guideP">Called 시간제 취업 허가. Working without it can mean a fine of up to ₩10 million and future visa restrictions.</p></div>
+    <div class="steps">
+      <div class="step"><h4 data-i18n="st1">Find a job &amp; get the contract</h4><p data-i18n="st1p">Get a written contract with hourly wage, hours and duties, plus the employer's business registration.</p></div>
+      <div class="step"><h4 data-i18n="st2">Visit your international office</h4><p data-i18n="st2p">Your school signs the part-time work confirmation form. Bring your TOPIK certificate and transcript.</p></div>
+      <div class="step"><h4 data-i18n="st3">Apply on HiKorea</h4><p data-i18n="st3p">e-Application → "Permission for Part-Time Work of International Students". Or apply at the immigration office.</p></div>
+      <div class="step"><h4 data-i18n="st4">Wait for approval, then start</h4><p data-i18n="st4p">Start only after the permit is granted — working while it's under review counts as unpermitted work.</p></div>
+    </div>
+    <div class="rules">
+      <div class="rule yes"><h4 data-i18n="okJobs">Usually allowed</h4>
+        <ul><li>Cafés, restaurants, convenience stores</li><li>Tutoring &amp; language teaching assistance (not private academy instructor roles)</li><li>Translation, interpreting, tour guiding</li><li>Office work, on-campus jobs, events &amp; promotions</li></ul></div>
+      <div class="rule no"><h4 data-i18n="noJobs">Not allowed</h4>
+        <ul><li>Bars, clubs and other entertainment / adult venues</li><li>Construction sites</li><li>Manufacturing — restricted, check with your school first</li><li>Any job without a permit, or more hours than permitted</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq">
+  <div class="wrap">
+    <div class="sec-head"><div><div class="eyebrow">FAQ</div><h2 data-i18n="faqH">Questions students ask us</h2></div></div>
+    <div class="faq">
+      <details open><summary>Can I start working as soon as I arrive in Korea?</summary><p>Degree students (D-2) can usually apply once enrolled. Korean language students (D-4) must have stayed in Korea for at least 6 months first. Either way, you need the permit before the first shift.</p></details>
+      <details><summary>Do foreign students get the same minimum wage?</summary><p>Yes. The 2026 minimum wage of ₩10,320/hour applies to everyone working in Korea, regardless of nationality or visa. It rises to ₩10,700 on January 1, 2027.</p></details>
+      <details><summary>What is 주휴수당 (weekly holiday allowance)?</summary><p>If you work 15 or more hours a week and complete your scheduled days, your employer must pay you for one extra "rest day". At 20 hrs/week that's about 4 extra paid hours each week. Use our pay calculator above.</p></details>
+      <details><summary>Can I work more than one part-time job?</summary><p>Yes, but each workplace must be listed on your permit and your combined hours must stay within your limit.</p></details>
+      <details><summary>What if my employer refuses to sign a contract or pays late?</summary><p>A written contract is required by law. You can get free help in many languages from the Ministry of Employment and Labor (call 1350) or a Foreign Workers Support Center.</p></details>
+    </div>
+  </div>
+</section>
+
+<!-- EMPLOYERS -->
+<section id="employers">
+  <div class="wrap">
+    <div class="cta">
+      <div>
+        <div class="eyebrow" style="color:var(--brand-2)" data-i18n="empE">For employers</div>
+        <h2 data-i18n="empH">Hire motivated, multilingual students</h2>
+        <p data-i18n="empP">Post a job in 5 minutes. We show students the visa rules up front, so the people who apply are ready to get their permit.</p>
+        <button class="btn btn-primary" style="margin-top:22px" id="postJobBtn" data-i18n="postJob">Post a job — free</button>
+      </div>
+      <div class="cta-list">
+        <div>🌏 Students from 50+ countries</div>
+        <div>🗣️ English, Chinese, Vietnamese, Japanese speakers</div>
+        <div>📄 Contract &amp; permit checklist included</div>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- EMPLOYER DASHBOARD -->
+<section id="dashboard">
+  <div class="wrap">
+    <div class="dash-head">
+      <div><div class="eyebrow">Employer dashboard</div><h2 id="dashTitle">Your job postings</h2></div>
+      <div style="display:flex;gap:10px"><button class="btn btn-ghost" id="dashBack">← Back to job board</button><button class="btn btn-primary" id="dashNew">+ Post a new job</button></div>
+    </div>
+    <div id="dashBanner"></div>
+    <div class="dash-grid">
+      <div>
+        <div class="panel">
+          <h3>Company profile</h3>
+          <div class="co-info" id="coInfo"></div>
+          <button class="btn btn-ghost btn-sm" style="margin-top:14px;width:100%" id="editCo">Edit company profile</button>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <h3>Posting rules</h3>
+          <ul style="padding-left:18px;font-size:14px;color:var(--ink-2);display:grid;gap:6px">
+            <li>Hourly pay must be at least ₩10,320 (2026 minimum wage).</li>
+            <li>No jobs at bars, clubs, adult entertainment venues or construction sites; manufacturing is restricted.</li>
+            <li>Students need an immigration permit before the first shift — be ready to give them a written contract and a copy of your business registration.</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <div class="panel">
+          <div class="kpis"><div class="kpi"><b id="kOpen">0</b><span>Open</span></div><div class="kpi"><b id="kClosed">0</b><span>Closed</span></div><div class="kpi"><b id="kTotal">0</b><span>Total posted</span></div></div>
+          <div id="myJobs"></div>
+        </div>
+        <div class="panel" style="margin-top:16px">
+          <h3>Applications <span class="saved-count" id="appCount" style="display:none"></span></h3>
+          <div id="appList"></div>
+        </div>
+        <div class="panel" style="margin-top:16px" id="jobFormPanel">
+          <h3 id="jobFormTitle">Post a new job</h3>
+          <form class="jform" id="jobForm" novalidate>
+            <div class="form-row">
+              <div class="inp"><label>Job title (English) *</label><input name="title" required maxlength="80" placeholder="e.g. Weekend café barista"></div>
+              <div class="inp"><label>Job title (Korean)</label><input name="ko" maxlength="60" placeholder="예: 주말 바리스타"></div>
+            </div>
+            <div class="form-row">
+              <div class="inp"><label>Category *</label><select name="cat" id="jfCat"></select></div>
+              <div class="inp"><label>City *</label><select name="city" id="jfCity"></select></div>
+            </div>
+            <div class="inp"><label>Work days *</label></div>
+            <div class="day-row" id="jfDays">
+              <label class="day-chip"><input type="checkbox" name="d_0">Mon</label>
+              <label class="day-chip"><input type="checkbox" name="d_1">Tue</label>
+              <label class="day-chip"><input type="checkbox" name="d_2">Wed</label>
+              <label class="day-chip"><input type="checkbox" name="d_3">Thu</label>
+              <label class="day-chip"><input type="checkbox" name="d_4">Fri</label>
+              <label class="day-chip"><input type="checkbox" name="d_5">Sat</label>
+              <label class="day-chip"><input type="checkbox" name="d_6">Sun</label>
+              <label class="chk" style="margin-left:8px"><input type="checkbox" name="flexible"> Flexible hours</label>
+            </div>
+            <div class="form-row">
+              <div class="inp"><label>Start time *</label><input type="time" name="startTime"></div>
+              <div class="inp"><label>End time *</label><input type="time" name="endTime"></div>
+            </div>
+            <div class="form-row">
+              <div class="inp"><label>District / area *</label><input name="area" required maxlength="40" placeholder="e.g. Haeundae-gu"></div>
+              <div class="inp"><label>Schedule *</label><input name="hours" required maxlength="60" placeholder="e.g. Sat–Sun 10:00–16:00"></div>
+            </div>
+            <div class="inp"><label>Workplace location * (click the map to drop a pin)</label></div>
+            <div id="jfMap" class="mini-map"></div>
+            <div class="map-actions" style="margin-bottom:14px"><button type="button" class="btn btn-ghost btn-sm" id="jfLocate">📍 Use my current location</button><span class="fine" id="jfCoords" style="margin:0">No location pinned yet — click the map where the workplace is.</span></div>
+            <div class="form-row">
+              <div class="inp"><label>Pay type *</label><select name="payType" id="jfPayType"><option value="hourly">Hourly wage</option><option value="daily">Daily wage</option><option value="monthly">Monthly salary</option></select></div>
+              <div class="inp"><label>Amount (₩) *</label><input name="pay" type="number" min="0" step="10" required value="10320"></div>
+            </div>
+            <div class="form-row">
+              <div class="inp" id="jfHoursWrap" style="display:none"><label id="jfHoursLabel">Hours per day *</label><input name="payHours" type="number" min="1" max="60" step="0.5" placeholder="e.g. 8"></div>
+              <div class="inp"><label>Legal minimum for this job</label><div id="jfMinPay" class="min-pay"></div></div>
+            </div>
+            <div class="form-row">
+              <div class="inp"><label>Korean level needed *</label><select name="lvl"><option value="0">No Korean needed</option><option value="1">Basic (TOPIK 1–2)</option><option value="3" selected>Intermediate (TOPIK 3–4)</option><option value="5">Advanced (TOPIK 5+)</option></select></div>
+              <div class="inp"><label>Application deadline</label><input name="deadline" type="date"></div>
+            </div>
+            <div class="inp"><label>Tags</label></div>
+            <div class="flag-row">
+              <label class="chk"><input type="checkbox" name="f_weekend"> Weekend</label>
+              <label class="chk"><input type="checkbox" name="f_evening"> Evening</label>
+              <label class="chk"><input type="checkbox" name="f_remote"> Remote</label>
+              <label class="chk"><input type="checkbox" name="f_english"> English OK</label>
+              <label class="chk"><input type="checkbox" name="f_noexp"> No experience</label>
+            </div>
+            <div class="inp"><label>Job description *</label><textarea name="desc" required maxlength="1200" placeholder="Duties, location details, what you offer…"></textarea></div>
+            <div id="jfErr" style="color:#c2410c;font-weight:600;font-size:14px;margin-top:10px"></div>
+            <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">
+              <button class="btn btn-primary" type="submit" id="jfSubmit">Publish job</button>
+              <button class="btn btn-ghost" type="button" id="jfCancel" style="display:none">Cancel edit</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div><a href="#top" class="logo" style="margin-bottom:10px"><div class="logo-mark">W</div>Work Abroad Hub</a>
+        <p style="max-width:300px">Part-time jobs and work-permit help for international students in Korea.</p></div>
+      <div><h5>Students</h5><a href="#jobs">Find jobs</a><a href="#tools">Hours checker</a><a href="#tools">Pay calculator</a><a href="#guide">Permit guide</a></div>
+      <div><h5>Employers</h5><a href="#employers">Post a job</a><a href="#guide">Hiring rules</a></div>
+      <div><h5>Official help</h5><a href="https://www.hikorea.go.kr" target="_blank" rel="noopener">HiKorea</a><a href="https://www.moel.go.kr" target="_blank" rel="noopener">Ministry of Employment &amp; Labor</a><span style="display:block;padding:3px 0">Labor helpline: 1350</span><span style="display:block;padding:3px 0">Immigration: 1345</span></div>
+    </div>
+    <div class="copy"><span>© 2026 Work Abroad Hub. Listings marked “Sample” are examples; listings marked “New” are posted by employers.</span><span>Visa info is general guidance — confirm with your school or HiKorea.</span></div>
+  </div>
+</footer>
+
+<!-- Modal -->
+<div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
+<div class="toast" id="toast"></div>
+
+<script type="module" src="script.js?v=1795300303"></script>
+</body>
+</html>

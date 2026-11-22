@@ -1,0 +1,11 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.txt
+*.log
+.DS_Store
+backups/
+uploads/
+coverage/
+.backup-before-part10/
