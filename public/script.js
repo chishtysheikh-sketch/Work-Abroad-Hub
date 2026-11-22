@@ -2104,14 +2104,76 @@ const statusPill = s => `<span class="p-pill st-${esc(s||"new")}">${esc(APP_STAT
 
 function notifItems(){
   const D=portalData(), items=[];
-  D.apps.forEach(a=>items.push({t:a.createdAt||0, type:"app", icon:"👥", title:L("New job application","새 지원서"), text:`${a.name} ${L("applied for","님이 지원:")} “${a.jobTitle}”`}));
-  D.jobs.forEach(j=>items.push({t:j.createdAt||0, type:"job", icon:"✅", title:L("Job published","공고 게시"), text:`“${j.title}” ${L("is live on the job board.","가 게시되었어요.")}`}));
-  D.soon.forEach(j=>items.push({t:Date.now()-1, type:"job", icon:"⏰", title:L("Job expiring soon","마감 임박"), text:`“${j.title}” ${L("closes on","마감:")} ${j.deadline}`}));
-  if(typeof chat!=="undefined") chat.list.filter(unreadOf).forEach(c=>items.push({t:c.updatedAt||0, type:"chat", icon:"💬", title:L("New message","새 메시지"), text:`${c.studentName||"Student"}: ${c.lastText||""}`}));
+  D.apps.forEach(a=>items.push({t:a.createdAt||0, type:"app", ref:String(a.id), jobId:String(a.jobId), icon:"👥", title:L("New job application","새 지원서"), text:`${a.name} ${L("applied for","님이 지원:")} “${a.jobTitle}”`}));
+  D.jobs.forEach(j=>items.push({t:j.createdAt||0, type:"job", ref:String(j.id), icon:"✅", title:L("Job published","공고 게시"), text:`“${j.title}” ${L("is live on the job board.","가 게시되었어요.")}`}));
+  D.soon.forEach(j=>items.push({t:Date.now()-1, type:"job", ref:String(j.id), key:`job-soon:${j.id}:${j.deadline}`, icon:"⏰", title:L("Job expiring soon","마감 임박"), text:`“${j.title}” ${L("closes on","마감:")} ${j.deadline}`}));
+  if(typeof chat!=="undefined") chat.list.filter(unreadOf).forEach(c=>items.push({t:c.updatedAt||0, type:"chat", ref:String(c.id), icon:"💬", title:L("New message","새 메시지"), text:`${c.studentName||"Student"}: ${c.lastText||""}`}));
+  items.forEach(n=>{ if(!n.key) n.key=`${n.type}:${n.ref}:${n.t}`; });
   return items.sort((a,b)=>b.t-a.t);
 }
 const seenKey = () => "wah_seen_"+backend.uid;
-function unseenCount(){ const seen=store.get(seenKey(),0); return notifItems().filter(n=>n.t>seen).length; }
+/* per-item read state: a list of "type:ref:time" keys (newest 300) */
+const readKey = () => "wah_read_"+backend.uid;
+const readSet = () => new Set(store.get(readKey(),[]));
+function markNotifRead(key){
+  if(!key) return; const list=store.get(readKey(),[]).filter(k=>k!==key); list.push(key);
+  store.set(readKey(), list.slice(-300));
+}
+function isUnread(n, seen, rs){ return n.t>seen && !rs.has(n.key); }
+function unseenCount(){ const seen=store.get(seenKey(),0), rs=readSet(); return notifItems().filter(n=>isUnread(n,seen,rs)).length; }
+/* attributes that make a notification row clickable */
+const notifAttrs = n => `role="button" tabindex="0" data-ntype="${esc(n.type)}" data-nref="${esc(n.ref||"")}" data-njob="${esc(n.jobId||"")}" data-nkey="${esc(n.key||"")}"`;
+function flashEl(el){
+  if(!el) return; el.scrollIntoView({behavior:"smooth", block:"center"});
+  el.classList.remove("p-flash"); void el.offsetWidth; el.classList.add("p-flash");
+  setTimeout(()=>el.classList.remove("p-flash"), 2200);
+}
+const gone = () => toast(L("This item is no longer available.","더 이상 볼 수 없는 항목이에요."));
+function openChatById(id){
+  const c=(typeof chat!=="undefined"?chat.list:[]).find(x=>String(x.id)===String(id));
+  if(!c) return gone();
+  $("chatPanel").style.display=""; openThread(c);
+}
+/* employer portal: open what a notification is about */
+function openPortalNotif(type, ref, jobId, key){
+  markNotifRead(key);
+  const D=portalData();
+  if(type==="job"){
+    const j=D.jobs.find(x=>String(x.id)===ref); if(!j){ renderPortal(); return gone(); }
+    $("pJobQ").value=""; $("pJobS").value="";
+    setPortalPage("jobs");
+    const btn=document.querySelector(`#myJobs [data-edit="${CSS.escape(ref)}"]`);
+    requestAnimationFrame(()=>flashEl(btn&&btn.closest(".my-job")));
+    if(j.status==="open" && JOBS.some(x=>x.id===ref)) setTimeout(()=>openJob(ref), 350);
+  } else if(type==="app"){
+    const a=D.apps.find(x=>String(x.id)===ref); if(!a){ renderPortal(); return gone(); }
+    portalQuery=""; $("pSearch").value=""; $("pAppQ").value=""; $("pAppS").value="";
+    setPortalPage("applicants");
+    $("pAppJ").value=String(a.jobId||jobId||""); filterPortalLists();
+    const sel=document.querySelector(`#appList .app-status[data-app="${CSS.escape(ref)}"]`);
+    requestAnimationFrame(()=>flashEl(sel&&sel.closest(".app-row")));
+  } else if(type==="chat"){
+    renderPortal(); openChatById(ref);
+  }
+}
+/* student dashboard: open what an activity item is about */
+function openStudentNotif(type, ref){
+  if(type==="app"){
+    setStudentPage("apps");
+    const card=document.querySelector(`#sp_apps .st-app[data-jid="${CSS.escape(ref)}"]`);
+    if(!card) return gone();
+    requestAnimationFrame(()=>flashEl(card));
+  } else if(type==="chat") openChatById(ref);
+  else if(type==="shift") setStudentPage("hours");
+}
+function handleNotifActivate(e){
+  const r=e.target.closest("[data-ntype]"); if(!r) return;
+  if(e.type==="keydown"){ if(e.key!=="Enter" && e.key!==" ") return; e.preventDefault(); }
+  const {ntype, nref, njob, nkey}=r.dataset;
+  if(r.closest("#stDash")) openStudentNotif(ntype, nref); else openPortalNotif(ntype, nref, njob, nkey);
+}
+document.addEventListener("click", handleNotifActivate);
+document.addEventListener("keydown", handleNotifActivate);
 
 /* ---- page renderers ---- */
 function renderPortal(){
@@ -2168,7 +2230,7 @@ function renderPortalDashboard(D){
         <div class="p-card"><div class="pc-head"><b>${L("Quick Actions","빠른 메뉴")}</b></div>
           <div class="p-quick"><button data-go="post" class="q1">➕<span>${L("Post a Job","공고 등록")}</span></button><button data-go="jobs" class="q2">💼<span>${L("View All Jobs","공고 보기")}</span></button><button data-go="applicants" class="q3">👥<span>${L("Manage Applicants","지원자 관리")}</span></button><button data-go="company" class="q4">🏢<span>${L("Edit Company","기업 정보")}</span></button></div></div>
         <div class="p-card"><div class="pc-head"><b>${L("Activity Timeline","활동")}</b><a href="#" data-go="notifications">${L("View all →","전체 →")}</a></div>
-          ${timeline.length?`<ul class="p-timeline">${timeline.map(n=>`<li><span class="tl-ic">${n.icon}</span><div><b>${esc(n.title)}</b><small>${esc(n.text)}</small></div><em>${relTime(n.t)}</em></li>`).join("")}</ul>`:`<div class="empty" style="padding:20px">${L("Nothing yet.","아직 없어요.")}</div>`}</div>
+          ${timeline.length?`<ul class="p-timeline">${timeline.map(n=>`<li class="p-click" ${notifAttrs(n)}><span class="tl-ic">${n.icon}</span><div><b>${esc(n.title)}</b><small>${esc(n.text)}</small></div><em>${relTime(n.t)}</em></li>`).join("")}</ul>`:`<div class="empty" style="padding:20px">${L("Nothing yet.","아직 없어요.")}</div>`}</div>
       </div>
     </div>`;
   el.querySelectorAll("a[data-go]").forEach(a=>a.addEventListener("click",e=>e.preventDefault()));
@@ -2185,12 +2247,12 @@ function renderPortalCompany(D){
   $("pEditCo").onclick=()=>openAuth("employer");
 }
 function renderPortalNotifications(){
-  const el=$("pg_notifications"), seen=store.get(seenKey(),0), items=notifItems();
+  const el=$("pg_notifications"), seen=store.get(seenKey(),0), rs=readSet(), items=notifItems();
   const tab=el.dataset.tab||"all", shown=items.filter(n=>tab==="all"||n.type===tab);
   const cnt=t=>items.filter(n=>t==="all"||n.type===t).length;
   el.innerHTML = `<div class="p-head"><div><h2>${L("Notifications","알림")}</h2><p>${L("Updates on applications and your jobs.","지원서와 공고 소식이에요.")}</p></div><button class="btn btn-ghost" id="pMarkRead">${L("Mark all as read","모두 읽음")}</button></div>
     <div class="p-tabs">${[["all","All"],["app","Applications"],["job","Jobs"],["chat","Messages"]].map(([k,l])=>`<button data-tab="${k}" class="${tab===k?"on":""}">${l} (${cnt(k)})</button>`).join("")}</div>
-    <div class="p-card">${shown.length?shown.map(n=>`<div class="p-note ${n.t>seen?"unread":""}"><span class="tl-ic">${n.icon}</span><div><b>${esc(n.title)}</b><small>${esc(n.text)}</small></div><em>${relTime(n.t)}</em></div>`).join(""):`<div class="empty" style="padding:30px">${L("No notifications.","알림이 없어요.")}</div>`}</div>`;
+    <div class="p-card">${shown.length?shown.map(n=>`<div class="p-note p-click ${isUnread(n,seen,rs)?"unread":""}" ${notifAttrs(n)}><span class="tl-ic">${n.icon}</span><div><b>${esc(n.title)}</b><small>${esc(n.text)}</small></div><em>${relTime(n.t)}</em></div>`).join(""):`<div class="empty" style="padding:30px">${L("No notifications.","알림이 없어요.")}</div>`}</div>`;
   el.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{ el.dataset.tab=b.dataset.tab; renderPortalNotifications(); });
   $("pMarkRead").onclick=()=>{ store.set(seenKey(),Date.now()); renderPortal(); };
 }
@@ -2594,9 +2656,9 @@ function stHome(el,D){
   const counts=PIPE.map(p=>D.apps.filter(a=>(a.status||"new")===p[0]).length);
   const av=Array.isArray(account.availability)?account.availability:[];
   const top=D.ranked.slice(0,3);
-  const activity=[...D.apps.map(a=>({t:a.createdAt||0,icon:"📨",title:L("Application sent","지원 완료"),text:`${a.jobTitle} · ${a.company||""}`,st:a.status})),
-    ...(typeof chat!=="undefined"?chat.list.map(c=>({t:c.updatedAt||0,icon:"💬",title:L("Message","메시지"),text:`${c.employerName||""}: ${c.lastText||""}`})):[]),
-    ...(Array.isArray(account.shifts)?account.shifts:[]).slice(-3).map(s=>({t:new Date(s.date+"T"+s.start).getTime(),icon:"⏱️",title:L("Shift logged","근무 기록"),text:`${s.date} ${s.start}–${s.end} ${s.place||""}`}))]
+  const activity=[...D.apps.map(a=>({t:a.createdAt||0,type:"app",ref:String(a.jobId),icon:"📨",title:L("Application sent","지원 완료"),text:`${a.jobTitle} · ${a.company||""}`,st:a.status})),
+    ...(typeof chat!=="undefined"?chat.list.map(c=>({t:c.updatedAt||0,type:"chat",ref:String(c.id),icon:"💬",title:L("Message","메시지"),text:`${c.employerName||""}: ${c.lastText||""}`})):[]),
+    ...(Array.isArray(account.shifts)?account.shifts:[]).slice(-3).map(s=>({t:new Date(s.date+"T"+s.start).getTime(),type:"shift",ref:s.date,icon:"⏱️",title:L("Shift logged","근무 기록"),text:`${s.date} ${s.start}–${s.end} ${s.place||""}`}))]
     .filter(a=>a.t).sort((a,b)=>b.t-a.t).slice(0,5);
   el.innerHTML = `
     <div class="p-welcome"><div><h1>${L("Hi","안녕하세요")}, ${esc((pf.name||"").split(" ")[0])}! <span class="wave">👋</span></h1><p>${L("Here's your job search at a glance.","나의 구직 현황이에요.")}</p></div>
@@ -2629,7 +2691,7 @@ function stHome(el,D){
           <div class="st-tags"><span>${esc(pf.visa||"—")}</span><span>${esc(pf.topik||"—")}</span><span>📍 ${esc(pf.city||"—")}</span></div>
           <button class="btn btn-ghost btn-sm" data-sgo="profile">${L("View profile","프로필 보기")}</button></div>
         <div class="p-card"><div class="pc-head"><b>${L("Recent activity","최근 활동")}</b></div>
-          ${activity.length?`<ul class="p-timeline">${activity.map(n=>`<li><span class="tl-ic">${n.icon}</span><div><b>${esc(n.title)}</b><small>${esc(n.text)}</small></div><em>${relTime(n.t)}</em></li>`).join("")}</ul>`:`<div class="empty" style="padding:20px">${L("Nothing yet — apply to a job!","아직 없어요. 지원해 보세요!")}</div>`}</div>
+          ${activity.length?`<ul class="p-timeline">${activity.map(n=>`<li class="p-click" ${notifAttrs(n)}><span class="tl-ic">${n.icon}</span><div><b>${esc(n.title)}</b><small>${esc(n.text)}</small></div><em>${relTime(n.t)}</em></li>`).join("")}</ul>`:`<div class="empty" style="padding:20px">${L("Nothing yet — apply to a job!","아직 없어요. 지원해 보세요!")}</div>`}</div>
       </div>
     </div>`;
   const ss=$("sSetup"); if(ss) ss.onclick=openScheduleModal;
@@ -2646,7 +2708,7 @@ function stJobs(el,D){
 function stApps(el,D){
   const list = D.apps.length ? D.apps : D.appliedIds.map(id=>{ const j=JOBS.find(x=>x.id===id); return j?{jobId:id,jobTitle:j.title,company:j.co,status:"new",createdAt:0}:null; }).filter(Boolean);
   el.innerHTML = `<div class="p-head"><div><h2>📨 ${L("My Applications","내 지원 현황")}</h2><p>${L("The status updates when the employer reviews your application.","기업이 지원서를 확인하면 상태가 바뀌어요.")}</p></div></div>
-    ${list.length?list.map(a=>{ const j=JOBS.find(x=>x.id===String(a.jobId)); return `<div class="p-card st-app">
+    ${list.length?list.map(a=>{ const j=JOBS.find(x=>x.id===String(a.jobId)); return `<div class="p-card st-app" data-jid="${esc(String(a.jobId))}">
       <div class="st-app-top"><div><b>${esc(a.jobTitle)}</b><small>${esc(a.company||"")}${a.createdAt?" · "+new Date(a.createdAt).toLocaleDateString():""}</small></div>${statusPill(a.status)}</div>
       ${appStepper(a.status||"new")}
       <div class="st-app-actions">${j?`<button class="btn btn-ghost btn-sm" data-job="${esc(j.id)}">${L("View job","공고 보기")}</button>`:""}${a.employerUid&&chatOn()?`<button class="btn btn-ghost btn-sm" data-chat="${esc(a.employerUid)}" data-co="${esc(a.company||"")}" data-jt="${esc(a.jobTitle||"")}">💬 ${L("Message employer","기업에 메시지")}</button>`:""}</div></div>`; }).join("")

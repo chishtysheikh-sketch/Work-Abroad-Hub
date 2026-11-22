@@ -1195,3 +1195,10 @@ html:not([data-theme="dark"]) .lp-art{background:linear-gradient(150deg,#059669 
 html:not([data-theme="dark"]) .lp-blob.b1{background:#a7f3d0}
 html:not([data-theme="dark"]) .lp-blob.b2{background:#7dd3fc}
 html:not([data-theme="dark"]) .lp-logo .logo-mark{color:#059669}
+
+/* P2: clickable notifications + highlight of the item they open */
+.p-click{cursor:pointer;border-radius:10px;transition:background .15s}
+.p-click:hover{background:var(--blue-soft)}
+.p-click:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+@keyframes pFlash{0%,60%{background:rgba(255,138,61,.28);box-shadow:0 0 0 2px var(--brand-2)}100%{background:transparent;box-shadow:0 0 0 0 transparent}}
+.p-flash{animation:pFlash 2s ease-out}
