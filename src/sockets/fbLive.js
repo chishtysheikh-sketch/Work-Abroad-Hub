@@ -1,7 +1,8 @@
 // Live updates for the website (like Firestore's onSnapshot).
 // Uses its own Socket.IO "room" called a namespace: /fb
 // Logged-out visitors may connect too (they can see job posts live).
-import { readToken, COOKIE_NAME } from "../middleware/auth.js";
+import { COOKIE_NAME } from "../middleware/auth.js";
+import { checkToken } from "../utils/session.js";
 import { readDoc, runQuery, parsePath } from "../fb/core.js";
 
 let nsp = null;
@@ -43,8 +44,9 @@ export function notify(col, docId) {
 
 export function registerFbLive(io) {
   nsp = io.of("/fb");
-  nsp.use((socket, next) => {
-    const user = readToken(getCookie(socket.handshake.headers.cookie, COOKIE_NAME));
+  nsp.use(async (socket, next) => {
+    // old tokens (after "log out everywhere") and blocked users count as logged out
+    const user = await checkToken(getCookie(socket.handshake.headers.cookie, COOKIE_NAME)).catch(() => null);
     socket.data.uid = user ? user.id : null;
     socket.data.subs = new Map();
     next();

@@ -1,7 +1,8 @@
 import mongoose from "mongoose";
 import Conversation from "../models/Conversation.js";
 import Message from "../models/Message.js";
-import { readToken, COOKIE_NAME } from "../middleware/auth.js";
+import { COOKIE_NAME } from "../middleware/auth.js";
+import { checkToken } from "../utils/session.js";
 
 function getCookie(header, name) {
   const m = (header || "").match(new RegExp("(?:^|;\\s*)" + name + "=([^;]*)"));
@@ -10,8 +11,8 @@ function getCookie(header, name) {
 
 export function registerChat(io) {
   // only logged-in users can connect
-  io.use((socket, next) => {
-    const user = readToken(getCookie(socket.handshake.headers.cookie, COOKIE_NAME));
+  io.use(async (socket, next) => {
+    const user = await checkToken(getCookie(socket.handshake.headers.cookie, COOKIE_NAME)).catch(() => null);
     if (!user) return next(new Error("unauthorized"));
     socket.user = user;
     next();

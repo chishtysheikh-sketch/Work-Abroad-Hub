@@ -17,12 +17,16 @@ const userSchema = new Schema({
   },
   agreedAt:     Date,
   tokenVersion: { type: Number, default: 0 },
+  failedLogins: { type: Number, default: 0 },     // wrong passwords in a row
+  lockUntil:    Date,                             // locked after 5 wrong passwords
+  blocked:      { type: Boolean, default: false },
 }, { timestamps: true });
 
 // browser e pathanor age gopon jinish shoriye dey
 userSchema.methods.toPublic = function () {
   const u = this.toObject();
   delete u.passwordHash; delete u.tokenVersion; delete u.__v;
+  delete u.failedLogins; delete u.lockUntil;
   if (u.role !== "student") delete u.student;
   if (u.role !== "employer") delete u.company;
   u.id = String(u._id);

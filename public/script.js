@@ -264,14 +264,28 @@ const AUTH_ERRORS = {
   "auth/wrong-password":["Wrong email or password.","이메일 또는 비밀번호가 올바르지 않아요."],
   "auth/user-not-found":["No account with this email — sign up first.","가입된 계정이 없어요. 먼저 회원가입 해주세요."],
   "auth/email-already-in-use":["This email already has an account — log in instead.","이미 가입된 이메일이에요. 로그인해 주세요."],
-  "auth/weak-password":["Password must be at least 6 characters.","비밀번호는 6자 이상이어야 해요."],
+  "auth/weak-password":["Password must be 8–72 characters with at least one letter and one number.","비밀번호는 8~72자이며 영문과 숫자를 각각 하나 이상 포함해야 해요."],
+  "auth/user-disabled":["This account has been blocked.","이 계정은 차단되었어요."],
   "auth/invalid-email":["Please enter a valid email.","올바른 이메일을 입력해 주세요."],
   "auth/too-many-requests":["Too many tries. Wait a moment and try again.","시도가 너무 많아요. 잠시 후 다시 시도해 주세요."],
   "auth/popup-closed-by-user":["Google sign-in was closed.","구글 로그인이 취소되었어요."],
   "auth/operation-not-allowed":["This sign-in method isn't enabled in Firebase yet.","Firebase에서 이 로그인 방법이 아직 켜져 있지 않아요."],
   "auth/unauthorized-domain":["This website's domain isn't allowed in Firebase (Authentication → Settings → Authorized domains).","Firebase 승인된 도메인에 이 사이트를 추가해 주세요."]
 };
-const authErr = e => { const m = AUTH_ERRORS[e && e.code]; return m ? L(m[0],m[1]) : L("Something went wrong: ","오류: ")+((e&&e.code)||"unknown"); };
+// these errors carry a specific reason from our server (e.g. "This password is too common.") → show it
+const SERVER_MSG_CODES = ["auth/weak-password","auth/too-many-requests","auth/user-disabled"];
+const authErr = e => {
+  if(e && e.fromServer && e.message && (SERVER_MSG_CODES.includes(e.code) || !AUTH_ERRORS[e.code])) return e.message;
+  const m = AUTH_ERRORS[e && e.code]; return m ? L(m[0],m[1]) : L("Something went wrong: ","오류: ")+((e&&e.code)||"unknown");
+};
+// same rule as the server (src/utils/password.js), checked before sending
+function passwordProblem(pw, email){
+  if(pw.length<8||pw.length>72) return L("Password must be 8–72 characters.","비밀번호는 8~72자여야 해요.");
+  if(!/[A-Za-z]/.test(pw)||!/[0-9]/.test(pw)) return L("Password needs at least one letter and one number.","영문과 숫자를 각각 하나 이상 넣어 주세요.");
+  const name=String(email||"").split("@")[0].toLowerCase();
+  if(name.length>=3 && pw.toLowerCase().includes(name)) return L("Password must not contain your email name.","비밀번호에 이메일 아이디를 넣을 수 없어요.");
+  return "";
+}
 
 /* ---------- state ---------- */
 const state = {q:"",city:"",level:"",cats:new Set(),flags:new Set(),minPay:MIN_WAGE,sort:"new",limit:8,savedOnly:false};
@@ -637,7 +651,7 @@ const needsCredentials = () => backend.mode==="firebase" && !backend.user;
 function credentialRows(){
   if(!needsCredentials()) return "";
   return `<div class="google-top"><button type="button" class="btn btn-ghost google-btn" id="gSignup">${GOOGLE_SVG} ${L("Sign up with Google","Google로 가입하기")}</button><span>${L("or create a password below","또는 아래에서 비밀번호를 만드세요")}</span></div>
-    ${rowHtml(L("Password","비밀번호"),`<input name="password" type="password" autocomplete="new-password" placeholder="${L("At least 6 characters","6자 이상")}">`,1,"err_password")}
+    ${rowHtml(L("Password","비밀번호"),`<input name="password" type="password" autocomplete="new-password" placeholder="${L("8+ characters, a letter and a number","8자 이상, 영문+숫자")}">`,1,"err_password")}
     ${rowHtml(L("Confirm password","비밀번호 확인"),`<input name="password2" type="password" autocomplete="new-password">`,1,"err_password2")}`;
 }
 function wireGoogleSignup(role){
@@ -651,7 +665,8 @@ function wireGoogleSignup(role){
 function checkPasswords(f){
   if(!needsCredentials()) return true;
   const pw=f.elements.password.value, pw2=f.elements.password2.value;
-  return [fieldErr(f,"password",pw.length>=6?"":L("Password must be at least 6 characters.","비밀번호는 6자 이상이어야 해요.")),
+  const em=(f.querySelector('input[type="email"]')||{}).value||"";
+  return [fieldErr(f,"password",passwordProblem(pw, em)),
           fieldErr(f,"password2",pw===pw2?"":L("Passwords don't match.","비밀번호가 일치하지 않아요."))].every(Boolean);
 }
 // Creates the Firebase login when needed. Returns true when the user is signed in and ready.

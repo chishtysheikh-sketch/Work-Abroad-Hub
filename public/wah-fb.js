@@ -18,7 +18,9 @@ async function api(path, body, method = "POST") {
   if (!r.ok) {
     // no code = the server is old or crashed → show what it said, so the problem is easy to find
     const code = d.code || (r.status === 404 ? "server-outdated (restart the server after part10.sh)" : `server-${r.status}: ${d.error || "error"}`);
-    throw fbError(code, d.error || "Server error");
+    const e = fbError(code, d.error || "Server error");
+    e.fromServer = !!d.error;          // script.js shows this exact message (e.g. why a password is weak)
+    throw e;
   }
   return d;
 }

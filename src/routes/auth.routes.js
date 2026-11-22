@@ -5,6 +5,8 @@ import rateLimit from "express-rate-limit";
 import User from "../models/User.js";
 import { validate } from "../middleware/validate.js";
 import { setAuthCookie, clearAuthCookie, requireAuth } from "../middleware/auth.js";
+import { validatePassword } from "../utils/password.js";
+import { passwordLogin, BCRYPT_COST } from "../utils/login.js";
 
 const router = Router();
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
@@ -31,7 +33,9 @@ const registerSchema = z.object({
 router.post("/register", authLimiter, validate(registerSchema), async (req, res) => {
   const { email, password, role, name, phone, student, company } = req.body;
   if (role === "employer" && !company) return res.status(400).json({ error: "Company details are required." });
-  const passwordHash = await bcrypt.hash(password, 12);
+  const weak = validatePassword(password, email);
+  if (weak) return res.status(400).json({ code: "auth/weak-password", error: weak });
+  const passwordHash = await bcrypt.hash(password, BCRYPT_COST);
   const user = await User.create({
     email, passwordHash, role, name, phone, agreedAt: new Date(),
     student: role === "student" ? (student || {}) : undefined,
@@ -44,11 +48,10 @@ router.post("/register", authLimiter, validate(registerSchema), async (req, res)
 const loginSchema = z.object({ email: z.email(), password: z.string().min(1).max(72) });
 
 router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
-  const user = await User.findOne({ email: req.body.email }).select("+passwordHash");
-  const ok = user && await bcrypt.compare(req.body.password, user.passwordHash);
-  if (!ok) return res.status(401).json({ error: "Wrong email or password." });
-  setAuthCookie(res, user);
-  res.json({ user: user.toPublic() });
+  const r = await passwordLogin(req.body.email.toLowerCase(), req.body.password);
+  if (!r.user) return res.status(r.status).json({ code: r.code, error: r.error });
+  setAuthCookie(res, r.user);
+  res.json({ user: r.user.toPublic() });
 });
 
 router.post("/logout", (req, res) => {
