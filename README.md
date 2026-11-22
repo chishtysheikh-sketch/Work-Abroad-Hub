@@ -1,7 +1,7 @@
-# Work Abroad Hub: Server
+# Work-Abroad-Hub
+A job seeking platform for international student in South Korea
 
-Backend for **Work Abroad Hub**, a site where international students in Korea find part-time jobs.
-It serves the website (in `public/`) and replaces Firebase with our own server.
+This repository is the **server** for Work Abroad Hub. It serves the website (in `public/`) and replaces Firebase with our own backend.
 
 **Stack:** Node.js + Express 5 (ES modules), MongoDB (Mongoose), Socket.IO for live updates and chat.
 
