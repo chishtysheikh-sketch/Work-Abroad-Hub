@@ -19,6 +19,9 @@ const schema = z.object({
   SMTP_USER:   optional(z.string()),
   SMTP_PASS:   optional(z.string().transform(s => s.replace(/\s+/g, ""))),   // Gmail shows it with spaces
   MAIL_FROM:   optional(z.string()),
+  // Google sign-in (optional: without both, the Google buttons stay hidden)
+  GOOGLE_CLIENT_ID:     optional(z.string().trim().regex(/^[\w-]+\.apps\.googleusercontent\.com$/, "must look like 1234-abc.apps.googleusercontent.com (paste only the ID, no label)")),
+  GOOGLE_CLIENT_SECRET: optional(z.string().trim().min(10, "looks too short (it usually starts with GOCSPX-)")),
 });
 
 const result = schema.safeParse(process.env);
@@ -33,3 +36,4 @@ export const env = result.data;
 // keep process.env in step, so older code that reads it sees the same values
 process.env.NODE_ENV = env.NODE_ENV;
 export const isProd = env.NODE_ENV === "production";
+export const googleEnabled = !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);

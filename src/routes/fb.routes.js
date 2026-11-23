@@ -13,14 +13,15 @@ import { validatePassword } from "../utils/password.js";
 import { passwordLogin, checkPassword, BCRYPT_COST } from "../utils/login.js";
 import { checkEmail, normalizeEmail } from "../utils/email.js";
 import { sendMail, emailTemplate } from "../utils/mailer.js";
-import { env } from "../config/env.js";
+import { env, googleEnabled } from "../config/env.js";
+import { OAuth2Client } from "google-auth-library";
 import { readDoc, runQuery, writeDoc, FbError } from "../fb/core.js";
 import { notify } from "../sockets/fbLive.js";
 
 const router = Router();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const fail = (res, status, code, error) => res.status(status).json({ code, error });
+const fail = (res, status, code, error, extra) => res.status(status).json({ code, error, ...extra });
 const shape = u => ({ uid: String(u._id), email: u.email, displayName: u.name || "", emailVerified: !!u.emailVerified });
 
 // who is calling? (null = logged out, logged out everywhere, blocked or deleted)
@@ -81,7 +82,7 @@ router.post("/auth/login", authLimiter, async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   if (!EMAIL_RE.test(email)) return fail(res, 400, "auth/invalid-email", "Please enter a valid email.");
   const r = await passwordLogin(email, String(req.body?.password || ""));
-  if (!r.user) return fail(res, r.status, r.code, r.error);
+  if (!r.user) return fail(res, r.status, r.code, r.error, r.reason && { reason: r.reason });
   setAuthCookie(res, r.user);
   res.json({ user: shape(r.user) });
 });
@@ -117,6 +118,67 @@ router.post("/auth/resend-verification", authLimiter, async (req, res) => {
   const r = await sendVerifyEmail(user.email, v.token);
   if (r.failed) return fail(res, 502, "unavailable", "We couldn't send the email right now. Please try again later.");
   res.json({ ok: true });
+});
+
+// ---------- P6: Google sign-in ----------
+// The browser only sends us a one-time "code". We swap it with Google (using our secret)
+// for an ID token, check that token's signature + audience, and trust ONLY what's inside it.
+const google = googleEnabled ? new OAuth2Client(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, "postmessage") : null;
+const googleLimiter = limiter(15 * 60 * 1000, 20, "auth/too-many-requests", "Too many tries. Wait a moment.");
+
+// public: the website needs the client ID to open the popup (never the secret)
+router.get("/auth/google-config", (req, res) => {
+  res.json({ enabled: googleEnabled, clientId: googleEnabled ? env.GOOGLE_CLIENT_ID : null });
+});
+
+router.post("/auth/google", googleLimiter, async (req, res) => {
+  if (!google) return fail(res, 400, "auth/operation-not-allowed", "Google sign-in is not set up on this server.");
+  const code = req.body?.code;
+  if (typeof code !== "string" || code.length < 10 || code.length > 2048)
+    return fail(res, 400, "auth/invalid-credential", "Google sign-in failed. Please try again.");
+
+  let p;
+  try {
+    const { tokens } = await google.getToken(code);
+    const ticket = await google.verifyIdToken({ idToken: tokens.id_token, audience: env.GOOGLE_CLIENT_ID });
+    p = ticket.getPayload();
+  } catch (e) {
+    console.warn("Google sign-in: code rejected:", e.message);
+    return fail(res, 400, "auth/invalid-credential", "Google sign-in failed or took too long. Please try again.");
+  }
+  if (!p || !p.sub || !p.email) return fail(res, 400, "auth/invalid-credential", "Google sign-in failed. Please try again.");
+  if (p.email_verified !== true) return fail(res, 400, "auth/unverified-google-email", "Your Google email isn't verified yet. Verify it with Google first, or sign up with a password.");
+
+  const email = normalizeEmail(p.email);
+  let isNewUser = false;
+  let user = await User.findOne({ googleSub: p.sub });
+  if (!user) {
+    user = await User.findOne({ email });
+    if (user) {                      // same Gmail as an existing password account → link them
+      if (user.googleSub && user.googleSub !== p.sub) return fail(res, 409, "auth/account-exists-with-different-credential", "This email is already linked to a different Google account.");
+      if (!user.blocked) user = await User.findByIdAndUpdate(user._id, { $set: { googleSub: p.sub, emailVerified: true } }, { returnDocument: "after" });
+    } else {
+      try {
+        user = await User.create({
+          email, googleSub: p.sub, role: "student",          // the role chooser on the site sets the real role
+          name: String(p.name || email.split("@")[0]).trim().slice(0, 60) || "User",
+          emailVerified: true, hasPassword: false, agreedAt: new Date(),
+          passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString("hex"), BCRYPT_COST),   // nobody knows it
+        });
+        isNewUser = true;
+      } catch (e) {                  // two clicks at once → the other one created it
+        if (e.code !== 11000) throw e;
+        user = await User.findOne({ $or: [{ googleSub: p.sub }, { email }] });
+      }
+    }
+  }
+  if (!user) return fail(res, 400, "auth/invalid-credential", "Google sign-in failed. Please try again.");
+  if (user.blocked) return fail(res, 403, "auth/user-disabled", "This account has been blocked.");
+
+  await User.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
+  forgetSession(user._id);           // emailVerified may have just changed
+  setAuthCookie(res, user);
+  res.json({ user: shape(user), isNewUser });
 });
 
 // ---------- P5: forgot / reset / change password ----------

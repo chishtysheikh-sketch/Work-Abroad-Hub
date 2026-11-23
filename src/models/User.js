@@ -31,6 +31,7 @@ const userSchema = new Schema({
   passwordChangedAt: Date,
   hasPassword:       { type: Boolean, default: true },  // false = Google-only account (P6)
   lastLoginAt:       Date,                              // for "set a password" on Google-only accounts
+  googleSub:         { type: String, unique: true, sparse: true },   // Google's id for this person (P6)
 }, { timestamps: true });
 
 // browser e pathanor age gopon jinish shoriye dey
@@ -38,7 +39,7 @@ userSchema.methods.toPublic = function () {
   const u = this.toObject();
   delete u.passwordHash; delete u.tokenVersion; delete u.__v;
   delete u.failedLogins; delete u.lockUntil; delete u.emailVerifyCount; delete u.emailVerifyDay;
-  delete u.resetHash; delete u.resetExp;
+  delete u.resetHash; delete u.resetExp; delete u.googleSub;
   if (u.role !== "student") delete u.student;
   if (u.role !== "employer") delete u.company;
   u.id = String(u._id);

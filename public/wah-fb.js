@@ -20,15 +20,31 @@ async function api(path, body, method = "POST") {
     const code = d.code || (r.status === 404 ? "server-outdated (restart the server after part10.sh)" : `server-${r.status}: ${d.error || "error"}`);
     const e = fbError(code, d.error || "Server error");
     e.fromServer = !!d.error;          // script.js shows this exact message (e.g. why a password is weak)
+    if (d.reason) e.reason = d.reason; // e.g. "google-only"
     throw e;
   }
   return d;
 }
 
-// hide buttons this server doesn't support yet (Google login comes in P6)
+// Google buttons stay hidden until we know the server has Google sign-in set up
 const style = document.createElement("style");
 style.textContent = ".google-btn,.google-top,.lp-google,.or{display:none!important}";
 document.head.appendChild(style);
+
+// P6: ask the server for the Google client ID, then load Google's script ahead of time
+// (it must be ready BEFORE the click, so the popup opens straight from the click and isn't blocked)
+let googleCfg = null;
+fetch("/api/fb/auth/google-config", { credentials: "same-origin" })
+  .then(r => r.json())
+  .then(cfg => {
+    if (!cfg || !cfg.enabled || !cfg.clientId) return;
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client"; s.async = true;
+    s.onload = () => { googleCfg = cfg; style.textContent = ""; };    // show the Google buttons
+    s.onerror = () => console.warn("Google sign-in script didn't load (offline or blocked).");
+    document.head.appendChild(s);
+  })
+  .catch(() => {});
 
 /* ---------- live connection (Socket.IO) ---------- */
 let socket = null;
@@ -108,7 +124,34 @@ export async function deleteUser() {
   fire();
 }
 export class GoogleAuthProvider {}
-export async function signInWithPopup() { throw fbError("auth/operation-not-allowed", "Google login is not set up yet."); }
+// Google popup → one-time code → our server checks it with Google → logged in (same as password login)
+// NOT async on purpose: requestCode() must run inside the click, with nothing awaited before it.
+export function signInWithPopup() {
+  const oauth2 = window.google && window.google.accounts && window.google.accounts.oauth2;
+  if (!googleCfg || !oauth2) return Promise.reject(fbError("auth/google-not-ready", "Google sign-in is still loading. Please try again in a moment."));
+  return new Promise((resolve, reject) => {
+    const client = oauth2.initCodeClient({
+      client_id: googleCfg.clientId,
+      scope: "openid email profile",
+      ux_mode: "popup",
+      callback: async r => {
+        if (!r || r.error || !r.code) return reject(fbError("auth/popup-closed-by-user", "Google sign-in was cancelled."));
+        try {
+          const d = await api("/auth/google", { code: r.code });
+          const out = await signedIn(d.user);
+          resolve({ ...out, additionalUserInfo: { isNewUser: !!d.isNewUser } });
+        } catch (e) { reject(e); }
+      },
+      error_callback: e => {
+        const t = e && e.type;
+        if (t === "popup_failed_to_open") reject(fbError("auth/popup-blocked", "The Google window was blocked. Allow pop-ups for this site and try again."));
+        else if (t === "popup_closed") reject(fbError("auth/popup-closed-by-user", "Google sign-in was closed."));
+        else reject(fbError("auth/internal-error", (e && e.message) || "Google sign-in failed."));
+      },
+    });
+    client.requestCode();
+  });
+}
 // Firebase-like: resolves the same way whether or not the email has an account
 export async function sendPasswordResetEmail(a, email) { await api("/auth/forgot", { email }); }
 

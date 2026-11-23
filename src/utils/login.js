@@ -36,6 +36,8 @@ export async function passwordLogin(email, password) {
   const wrong = { status: 401, code: "auth/invalid-credential", error: "Wrong email or password." };
   const user = await User.findOne({ email }).select("+passwordHash");
   if (!user) { await bcrypt.compare(String(password), await getDummy()); return wrong; }
+  if (user.hasPassword === false) return { ...wrong, reason: "google-only",
+    error: "This account uses Google sign-in. Use 'Continue with Google', or 'Forgot password' to create a password." };
 
   const bad = await checkPassword(user, password, wrong);
   if (bad) return bad;

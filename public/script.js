@@ -269,12 +269,16 @@ const AUTH_ERRORS = {
   "auth/invalid-email":["Please enter a valid email.","올바른 이메일을 입력해 주세요."],
   "auth/too-many-requests":["Too many tries. Wait a moment and try again.","시도가 너무 많아요. 잠시 후 다시 시도해 주세요."],
   "auth/popup-closed-by-user":["Google sign-in was closed.","구글 로그인이 취소되었어요."],
+  "auth/popup-blocked":["The Google window was blocked. Allow pop-ups for this site and try again.","구글 창이 차단됐어요. 이 사이트의 팝업을 허용한 뒤 다시 시도해 주세요."],
+  "auth/google-not-ready":["Google sign-in is still loading. Please try again in a moment.","구글 로그인을 불러오는 중이에요. 잠시 후 다시 시도해 주세요."],
+  "auth/unverified-google-email":["Your Google email isn't verified yet. Verify it with Google first, or sign up with a password.","구글 이메일이 아직 인증되지 않았어요. 구글에서 먼저 인증하거나 비밀번호로 가입해 주세요."],
   "auth/operation-not-allowed":["This sign-in method isn't enabled in Firebase yet.","Firebase에서 이 로그인 방법이 아직 켜져 있지 않아요."],
   "auth/unauthorized-domain":["This website's domain isn't allowed in Firebase (Authentication → Settings → Authorized domains).","Firebase 승인된 도메인에 이 사이트를 추가해 주세요."]
 };
 // these errors carry a specific reason from our server (e.g. "This password is too common.") → show it
 const SERVER_MSG_CODES = ["auth/weak-password","auth/too-many-requests","auth/user-disabled"];
 const authErr = e => {
+  if(e && e.reason==="google-only") return L("This account uses Google sign-in. Use “Continue with Google”, or “Forgot password?” to create a password.","이 계정은 구글 로그인을 사용해요. “Google로 계속하기”를 누르거나, “비밀번호를 잊으셨나요?”로 비밀번호를 만드세요.");
   if(e && e.fromServer && e.message && (SERVER_MSG_CODES.includes(e.code) || !AUTH_ERRORS[e.code])) return e.message;
   const m = AUTH_ERRORS[e && e.code]; return m ? L(m[0],m[1]) : L("Something went wrong: ","오류: ")+((e&&e.code)||"unknown");
 };
