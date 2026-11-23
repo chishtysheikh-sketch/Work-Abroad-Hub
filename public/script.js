@@ -1,4 +1,4 @@
-import { firebaseConfig } from "./firebase-config.js?v=1795900000";
+import { firebaseConfig } from "./firebase-config.js?v=1796000000";
 
 const MIN_WAGE = 10320;
 const CATS = {
@@ -135,7 +135,7 @@ async function initBackend(){
   if(!configReady()) return startLocal("Firebase isn't set up yet (fill in firebase-config.js), so accounts and jobs are saved on this device only.");
   try{
     const base = `https://www.gstatic.com/firebasejs/${FB_VERSION}/`;
-    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1795900000"),import("./wah-fb.js?v=1795900000"),import("./wah-fb.js?v=1795900000")]);
+    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1796000000"),import("./wah-fb.js?v=1796000000"),import("./wah-fb.js?v=1796000000")]);
     const app = appMod.initializeApp(firebaseConfig);
     backend.fb = {...authMod, ...fsMod};
     backend.auth = authMod.getAuth(app);
@@ -151,7 +151,13 @@ async function initBackend(){
   F.onSnapshot(F.collection(backend.db,"postings"), snap=>{
     postings = snap.docs.map(d=>({uid:d.id,...d.data()}));
     renderAll();
-  }, err=>{ console.error("postings", err); toast("Couldn't load employer jobs — check your Firestore rules."); });
+  }, err=>{
+    console.error("postings", err);
+    // P13: offline / server unreachable is normal for an installed app → say so (not a "rules" problem)
+    const offline = !navigator.onLine || (err && err.code==="unavailable");
+    toast(offline ? L("You're offline. Showing sample jobs: connect to see the newest jobs.","오프라인이에요. 예시 공고만 보여요. 연결하면 최신 공고를 볼 수 있어요.")
+                  : L("Couldn't load employer jobs. Please try again.","기업 공고를 불러오지 못했어요. 다시 시도해 주세요."));
+  });
 
   F.onAuthStateChanged(backend.auth, async user=>{
     backend.user = user; backend.uid = user ? user.uid : null;
@@ -1462,6 +1468,7 @@ if($("jfDays")){
 /* --- dark mode --- */
 function applyTheme(t){
   document.documentElement.dataset.theme = t;
+  const tc=document.querySelector('meta[name="theme-color"]'); if(tc) tc.content = t==="dark" ? "#0f1420" : "#fbfaf7";   // P13: browser bar colour
   const b=$("themeBtn"); if(b){ b.textContent = t==="dark" ? "☀️" : "🌙"; b.title = t==="dark" ? "Light mode" : "Dark mode"; }
 }
 applyTheme(store.get("wah_theme", "dark"));
@@ -3950,6 +3957,81 @@ renderAuth = function(){
 };
 // an admin blocked this account while it was open
 window.addEventListener("wah-kicked", ()=>toast(L("Your account was blocked by an admin. Check your email.","관리자가 계정을 차단했어요. 이메일을 확인해 주세요.")));
+
+/* ===== P13: installable app (PWA) — service worker, "Install app", "new version" banner ===== */
+const PWA = { prompt: null, reg: null, userReload: false };
+const isStandalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const isIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isIOSSafari = () => isIOS() && /Safari/.test(navigator.userAgent) && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(navigator.userAgent);
+// Chrome/Edge/Android: we have the browser's install prompt · iPhone/iPad Safari: we can only explain the steps
+const installOffer = () => isStandalone() ? null : PWA.prompt ? "prompt" : isIOSSafari() ? "ios" : null;
+const installLabel = () => `📲 ${L("Install app","앱 설치")}`;
+
+function iosInstallTip(){
+  openModal(`<div class="ios-tip"><div class="ios-tip-icon"><img src="/icons/apple-touch-icon.png" alt="" width="64" height="64"></div>
+    <h3>${L("Add Work Abroad Hub to your Home Screen","홈 화면에 Work Abroad Hub 추가하기")}</h3>
+    <ol>
+      <li>${L("Tap the <b>Share</b> button <span class='ios-share' aria-hidden='true'>⬆︎</span> at the bottom of Safari.","Safari 아래쪽의 <b>공유</b> 버튼 <span class='ios-share' aria-hidden='true'>⬆︎</span>을 누르세요.")}</li>
+      <li>${L("Scroll down and tap <b>Add to Home Screen</b>.","아래로 내려 <b>홈 화면에 추가</b>를 누르세요.")}</li>
+      <li>${L("Tap <b>Add</b>. The app opens full-screen from your Home Screen.","<b>추가</b>를 누르면 홈 화면에서 전체 화면 앱으로 열려요.")}</li>
+    </ol></div>`);
+}
+async function installApp(){
+  if(PWA.prompt){
+    const p = PWA.prompt; PWA.prompt = null;
+    p.prompt();
+    const { outcome } = await p.userChoice.catch(()=>({}));
+    if(outcome==="accepted") toast(L("Installing Work Abroad Hub…","Work Abroad Hub 설치 중…"));
+    refreshInstallUI();
+  } else if(isIOSSafari()) iosInstallTip();
+}
+function refreshInstallUI(){
+  const offer = installOffer();
+  // footer
+  const col = document.querySelector("footer .foot > div");
+  let fb = $("footInstall");
+  if(col && !fb){ col.insertAdjacentHTML("beforeend", `<button type="button" class="install-btn" id="footInstall" hidden></button>`); fb = $("footInstall"); fb.onclick = installApp; }
+  if(fb){ fb.hidden = !offer; fb.textContent = installLabel(); }
+  // user menu (only exists when logged in)
+  const menu = $("userMenu"), mb = $("menuInstall");
+  if(menu && offer && !mb){
+    menu.querySelector('[data-act="logout"]').insertAdjacentHTML("beforebegin", `<button id="menuInstall">${installLabel()}</button>`);
+    $("menuInstall").onclick = ()=>{ menu.classList.remove("open"); installApp(); };
+  } else if(mb && !offer) mb.remove();
+}
+const _renderAuthPWA = renderAuth;
+renderAuth = function(){ _renderAuthPWA(); refreshInstallUI(); };
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); PWA.prompt = e; refreshInstallUI(); });
+window.addEventListener("appinstalled", () => { PWA.prompt = null; refreshInstallUI(); toast(L("Installed! Open it from your apps.","설치 완료! 앱 목록에서 열어 보세요.")); });
+
+function showUpdateBanner(){
+  if($("swUpdate")) return;
+  document.body.insertAdjacentHTML("beforeend", `<div class="sw-update" id="swUpdate" role="status">
+    <span>✨ ${L("A new version is available","새 버전이 있어요")}</span>
+    <button type="button" class="sw-reload" id="swReload">${L("Reload","새로고침")}</button>
+    <button type="button" class="sw-x" id="swLater" aria-label="${L("Later","나중에")}">✕</button></div>`);
+  $("swReload").onclick = ()=>{
+    PWA.userReload = true;
+    const w = PWA.reg && PWA.reg.waiting;
+    if(w) w.postMessage({ type: "SKIP_WAITING" }); else location.reload();   // the new worker takes over → controllerchange → reload
+  };
+  $("swLater").onclick = ()=> $("swUpdate").remove();
+}
+if("serviceWorker" in navigator && (location.protocol==="https:" || ["localhost","127.0.0.1"].includes(location.hostname))){
+  navigator.serviceWorker.addEventListener("controllerchange", ()=>{ if(PWA.userReload){ PWA.userReload=false; location.reload(); } });
+  window.addEventListener("load", ()=>{
+    navigator.serviceWorker.register("/sw.js").then(reg=>{
+      PWA.reg = reg;
+      if(reg.waiting && navigator.serviceWorker.controller) showUpdateBanner();          // already downloaded earlier
+      reg.addEventListener("updatefound", ()=>{
+        const w = reg.installing; if(!w) return;
+        w.addEventListener("statechange", ()=>{ if(w.state==="installed" && navigator.serviceWorker.controller) showUpdateBanner(); });
+      });
+      setInterval(()=>reg.update().catch(()=>{}), 60*60*1000);                           // tabs left open for hours
+    }).catch(err=>console.warn("service worker not registered:", err));
+  });
+}
+refreshInstallUI();
 
 persist(); payLabel(); renderAll(); calcHours(); calcPay();
 initBackend().then(()=>{ if(location.hash==="#dashboard" && account && account.loggedIn) showView("dashboard"); });

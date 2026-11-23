@@ -36,6 +36,8 @@ const cspDirectives = {
   "img-src": ["'self'", "data:", "blob:", "https://*.tile.openstreetmap.org", "https://unpkg.com", "https://*.googleusercontent.com"],
   "connect-src": ["'self'", "ws:", "wss:", "https://nominatim.openstreetmap.org", "https://accounts.google.com"],
   "frame-src": ["https://accounts.google.com"],
+  "worker-src": ["'self'"],            // P13: the service worker (/sw.js)
+  "manifest-src": ["'self'"],          // P13: /manifest.webmanifest
   "object-src": ["'none'"],
   "base-uri": ["'self'"],
   "frame-ancestors": ["'self'"],

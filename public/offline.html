@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f1420">
+<meta name="robots" content="noindex">
+<title>You're offline · Work Abroad Hub</title>
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" href="/icons/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<style>
+  :root{--ink:#e8ebf4;--muted:#8f97ad;--line:#2a3142;--bg:#0f1420;--card:#171d2b;--brand:#2563eb;--brand-2:#ff8a3d}
+  @media (prefers-color-scheme: light){:root{--ink:#14213d;--muted:#6b7490;--line:#e6e8ef;--bg:#fbfaf7;--card:#fff}}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 16px;background:var(--bg);color:var(--ink);
+       font-family:"Plus Jakarta Sans","Noto Sans KR",system-ui,-apple-system,sans-serif;line-height:1.55;-webkit-font-smoothing:antialiased}
+  .card{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:30px 24px;text-align:center;
+        box-shadow:0 1px 2px rgba(0,0,0,.2),0 12px 32px rgba(0,0,0,.18)}
+  .logo{display:inline-flex;align-items:center;gap:10px;font-weight:800;font-size:18px;margin-bottom:22px}
+  .logo-mark{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,var(--brand),var(--brand-2));display:grid;place-items:center;color:#fff;font-size:16px;transform:rotate(-6deg)}
+  .big{font-size:52px;line-height:1;margin-bottom:12px}
+  h1{font-size:22px;letter-spacing:-.01em}
+  .ko{font-family:"Noto Sans KR",system-ui,sans-serif;color:var(--muted);font-size:15px;margin-top:2px}
+  p{color:var(--muted);font-size:15px;margin-top:12px}
+  .btn{display:inline-block;margin-top:22px;border-radius:12px;padding:13px 26px;font-weight:700;font-size:16px;background:var(--brand);color:#fff;
+       text-decoration:none;box-shadow:0 6px 18px rgba(37,99,235,.3)}
+  .btn:focus-visible{outline:2px solid var(--brand-2);outline-offset:3px}
+  small{display:block;margin-top:16px;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="logo"><span class="logo-mark">W</span>Work Abroad Hub</div>
+    <div class="big" aria-hidden="true">📡</div>
+    <h1>You're offline</h1>
+    <div class="ko" lang="ko">인터넷에 연결되어 있지 않아요</div>
+    <p>Check your Wi-Fi or mobile data, then try again. Your saved jobs and settings are still on this device.</p>
+    <p lang="ko">Wi-Fi나 모바일 데이터를 확인한 뒤 다시 시도해 주세요. 저장한 공고와 설정은 이 기기에 그대로 있어요.</p>
+    <!-- href="" = this same address again, so Retry works without any script -->
+    <a class="btn" href="" id="retry">Retry · 다시 시도</a>
+    <small>We'll also try again by ourselves when you're back online. · 다시 연결되면 자동으로 새로고침해요.</small>
+  </main>
+  <script src="/offline.js"></script>
+</body>
+</html>
