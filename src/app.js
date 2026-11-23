@@ -39,6 +39,10 @@ app.use(helmet({
   contentSecurityPolicy: { useDefaults: false, reportOnly: CSP_REPORT_ONLY, directives: cspDirectives },
   // map tiles + address lookup (OpenStreetMap) need to know which site is asking
   referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  // Google sign-in opens a popup that must report back to this page (window.opener / postMessage).
+  // helmet's default "same-origin" cuts that link → "Google sign-in was closed".
+  // "same-origin-allow-popups" still isolates us from pages that open US, but lets our popups talk back.
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
 }));
 app.use(compression());
 app.use(cookieParser());
