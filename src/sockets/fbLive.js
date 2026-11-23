@@ -14,6 +14,7 @@ import { COOKIE_NAME } from "../middleware/auth.js";
 import { checkToken } from "../utils/session.js";
 import { readDoc, runQuery, parsePath } from "../fb/core.js";
 import { sharedResult, personalDocs, changed, isPublicCol } from "../fb/shared.js";
+import { on } from "./safe.js";
 
 let nsp = null;
 const BATCH_MS = 100;
@@ -99,7 +100,7 @@ export function registerFbLive(io) {
 
   nsp.on("connection", (socket) => {
     if (socket.data.uid) socket.join("user:" + socket.data.uid);     // P8: personal notifications
-    socket.on("sub", ({ id, kind, path, q, bin } = {}) => {
+    on(socket, "sub", ({ id, kind, path, q, bin }) => {           // P11: on() = a bad message can't crash the server
       if (typeof id !== "string" || socket.data.subs.size >= 50) return;
       try {
         let sub;
@@ -111,6 +112,6 @@ export function registerFbLive(io) {
         socket.emit("snap", { id, error: e.code || "invalid-argument", message: e.message });
       }
     });
-    socket.on("unsub", ({ id } = {}) => socket.data.subs.delete(id));
+    on(socket, "unsub", ({ id }) => socket.data.subs.delete(id));
   });
 }

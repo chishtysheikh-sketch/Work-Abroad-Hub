@@ -5,6 +5,7 @@
 // Passwords and hashes are never logged.
 import bcrypt from "bcryptjs";
 import User from "../models/User.js";
+import { logger, security, shortHash } from "./logger.js";
 
 export const BCRYPT_COST = 12;
 const MAX_TRIES = 5;
@@ -26,9 +27,17 @@ export async function checkPassword(user, password, wrong) {
     const tries = (user.failedLogins || 0) + 1;
     const set = tries >= MAX_TRIES ? { failedLogins: 0, lockUntil: new Date(Date.now() + LOCK_MS) } : { failedLogins: tries };
     await User.updateOne({ _id: user._id }, { $set: set });
+    if (tries >= MAX_TRIES) security(logger, "login.lockout", { uid: String(user._id), minutes: LOCK_MS / 60000 }, "account locked after 5 wrong passwords");
     return tries >= MAX_TRIES ? LOCKED : wrong;
   }
   return null;
+}
+
+// P11: one security line for a refused login (both login routes). Email → short keyed hash, never the address.
+export function logFailedLogin(req, email, r) {
+  const event = r.code === "auth/user-disabled" ? "login.blocked_user" : r.code === "auth/too-many-requests" ? "login.locked" : "login.failed";
+  const msg = { "login.blocked_user": "blocked user tried to log in", "login.locked": "login refused: account locked", "login.failed": "failed login" }[event];
+  security(req.log, event, { email: shortHash(email), reason: r.reason || r.code, ip: shortHash(req.ip) }, msg);
 }
 
 // → { user } on success, otherwise { status, code, error }

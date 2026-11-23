@@ -6,6 +6,7 @@
 //   GET  /reports?status=open|resolved       POST /reports/:id/resolve { note }
 //   GET  /log?page=
 // Every change is written to the AdminLog collection.
+import { rateLimited, security, logger } from "../utils/logger.js";
 import { Router } from "express";
 import mongoose from "mongoose";
 import rateLimit from "express-rate-limit";
@@ -35,13 +36,15 @@ const query = req => cut(req.query.q, 100);
 
 router.use(rateLimit({
   windowMs: 60 * 1000, limit: 300, standardHeaders: true, legacyHeaders: false,
-  handler: (req, res) => fail(res, 429, "resource-exhausted", "Too many requests, slow down."),
+  handler: (req, res) => { rateLimited(req, "admin"); fail(res, 429, "resource-exhausted", "Too many requests, slow down."); },
 }));
 router.use(requireAdmin);
 
 function log(req, action, target, details = {}) {
+  // P11: also a security line in the server log (who, what, on what — details stay in AdminLog)
+  security(req.log, "admin.action", { admin: req.user.id, action, target }, `admin: ${action} ${target}`);
   return AdminLog.create({ admin: req.user.id, adminEmail: req.user.email, action, target, details })
-    .catch(e => console.error("AdminLog failed:", e.message));
+    .catch(err => req.log.error({ err }, "AdminLog write failed"));
 }
 
 // ---------- dashboard numbers ----------
@@ -213,7 +216,7 @@ router.post("/employers/:uid/verify", async (req, res) => {
   notify("postings", uid); notify("users", uid);
   await log(req, verified ? "employer.verify" : "employer.unverify", "user:" + uid, { company: name });
   if (verified) createNotification(uid, { type: "system", title: "Your company is now a ✓ Verified employer",
-    body: "Students now see a “Verified employer” badge on your jobs." }).catch(e => console.error(e.message));
+    body: "Students now see a “Verified employer” badge on your jobs." }).catch(err => logger.error({ err }, "verify notification failed"));
   res.json({ ok: true, verified });
 });
 
@@ -268,7 +271,7 @@ router.post("/jobs/:ownerUid/:jobId/hide", async (req, res) => {
   createNotification(ownerUid, hidden
     ? { type: "job", title: `An admin hid your job “${cut(job.title, 80)}”`, body: `Reason: ${reason}`, link: { kind: "job", id: jobId } }
     : { type: "job", title: `Your job “${cut(job.title, 80)}” is visible again`, link: { kind: "job", id: jobId } })
-    .catch(e => console.error(e.message));
+    .catch(err => logger.error({ err }, "job hide notification failed"));
   res.json({ ok: true, hidden });
 });
 

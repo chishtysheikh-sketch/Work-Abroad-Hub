@@ -10,7 +10,7 @@ import FbDoc from "../models/FbDoc.js";
 import { setAuthCookie, clearAuthCookie, COOKIE_NAME } from "../middleware/auth.js";
 import { checkToken, forgetSession } from "../utils/session.js";
 import { validatePassword } from "../utils/password.js";
-import { passwordLogin, checkPassword, BCRYPT_COST } from "../utils/login.js";
+import { passwordLogin, checkPassword, logFailedLogin, BCRYPT_COST } from "../utils/login.js";
 import { checkEmail, normalizeEmail } from "../utils/email.js";
 import { sendMail, emailTemplate } from "../utils/mailer.js";
 import { env, googleEnabled } from "../config/env.js";
@@ -20,12 +20,13 @@ import { sharedResult, personalDocs, isPublicCol } from "../fb/shared.js";
 import { notify } from "../sockets/fbLive.js";
 import { deleteImagesOf } from "../utils/images.js";
 import { notifyAfterWrite } from "../services/notify.js";
+import { security, rateLimited } from "../utils/logger.js";
 import Notification from "../models/Notification.js";
 
 const router = Router();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const fail = (res, status, code, error, extra) => res.status(status).json({ code, error, ...extra });
+const fail = (res, status, code, error, extra) => res.status(status).json({ code, error, ...extra, requestId: res.req?.id });
 const shape = u => ({ uid: String(u._id), email: u.email, displayName: u.name || "", emailVerified: !!u.emailVerified,
                      isAdmin: u.isAdmin === true });   // P9: only shows/hides the "🛡️ Admin" link; the API checks the DB itself
 
@@ -54,13 +55,13 @@ function sendVerifyEmail(email, token) {
   }) });
 }
 
-const limiter = (windowMs, limit, code, error) => rateLimit({
+const limiter = (windowMs, limit, code, error, name) => rateLimit({
   windowMs, limit, standardHeaders: true, legacyHeaders: false,
-  handler: (req, res) => fail(res, 429, code, error),
+  handler: (req, res) => { rateLimited(req, name); fail(res, 429, code, error); },
 });
-const authLimiter  = limiter(15 * 60 * 1000, 20, "auth/too-many-requests", "Too many tries. Wait a moment.");
-const writeLimiter = limiter(60 * 1000, 120, "resource-exhausted", "Too many requests, slow down.");
-const readLimiter  = limiter(60 * 1000, 300, "resource-exhausted", "Too many requests, slow down.");
+const authLimiter  = limiter(15 * 60 * 1000, 20, "auth/too-many-requests", "Too many tries. Wait a moment.", "authLimiter");
+const writeLimiter = limiter(60 * 1000, 120, "resource-exhausted", "Too many requests, slow down.", "writeLimiter");
+const readLimiter  = limiter(60 * 1000, 300, "resource-exhausted", "Too many requests, slow down.", "readLimiter");
 
 // ---------- auth ----------
 router.post("/auth/signup", authLimiter, async (req, res) => {
@@ -87,7 +88,10 @@ router.post("/auth/login", authLimiter, async (req, res) => {
   const email = String(req.body?.email || "").trim().toLowerCase();
   if (!EMAIL_RE.test(email)) return fail(res, 400, "auth/invalid-email", "Please enter a valid email.");
   const r = await passwordLogin(email, String(req.body?.password || ""));
-  if (!r.user) return fail(res, r.status, r.code, r.error, r.reason && { reason: r.reason });
+  if (!r.user) {
+    logFailedLogin(req, email, r);           // P11: security log (email only as a short keyed hash)
+    return fail(res, r.status, r.code, r.error, r.reason && { reason: r.reason });
+  }
   setAuthCookie(res, r.user);
   res.json({ user: shape(r.user) });
 });
@@ -95,7 +99,7 @@ router.post("/auth/login", authLimiter, async (req, res) => {
 router.post("/auth/logout", (req, res) => { clearAuthCookie(res); res.json({ ok: true }); });
 
 // the link in the "Confirm your email" email
-const verifyLimiter = limiter(15 * 60 * 1000, 30, "auth/too-many-requests", "Too many tries. Wait a moment.");
+const verifyLimiter = limiter(15 * 60 * 1000, 30, "auth/too-many-requests", "Too many tries. Wait a moment.", "verifyLimiter");
 router.get("/auth/verify-email", verifyLimiter, async (req, res) => {
   const token = String(req.query.token || "");
   if (!/^[a-f0-9]{64}$/.test(token)) return res.redirect("/?verified=expired");
@@ -129,7 +133,7 @@ router.post("/auth/resend-verification", authLimiter, async (req, res) => {
 // The browser only sends us a one-time "code". We swap it with Google (using our secret)
 // for an ID token, check that token's signature + audience, and trust ONLY what's inside it.
 const google = googleEnabled ? new OAuth2Client(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET, "postmessage") : null;
-const googleLimiter = limiter(15 * 60 * 1000, 20, "auth/too-many-requests", "Too many tries. Wait a moment.");
+const googleLimiter = limiter(15 * 60 * 1000, 20, "auth/too-many-requests", "Too many tries. Wait a moment.", "googleLimiter");
 
 // public: the website needs the client ID to open the popup (never the secret)
 router.get("/auth/google-config", (req, res) => {
@@ -148,7 +152,7 @@ router.post("/auth/google", googleLimiter, async (req, res) => {
     const ticket = await google.verifyIdToken({ idToken: tokens.id_token, audience: env.GOOGLE_CLIENT_ID });
     p = ticket.getPayload();
   } catch (e) {
-    console.warn("Google sign-in: code rejected:", e.message);
+    req.log.warn({ event: "google.rejected", errMessage: e.message }, "Google sign-in: code rejected");
     return fail(res, 400, "auth/invalid-credential", "Google sign-in failed or took too long. Please try again.");
   }
   if (!p || !p.sub || !p.email) return fail(res, 400, "auth/invalid-credential", "Google sign-in failed. Please try again.");
@@ -178,7 +182,10 @@ router.post("/auth/google", googleLimiter, async (req, res) => {
     }
   }
   if (!user) return fail(res, 400, "auth/invalid-credential", "Google sign-in failed. Please try again.");
-  if (user.blocked) return fail(res, 403, "auth/user-disabled", "This account has been blocked.");
+  if (user.blocked) {
+    security(req.log, "login.blocked_user", { uid: String(user._id), via: "google" }, "blocked user tried to log in (Google)");
+    return fail(res, 403, "auth/user-disabled", "This account has been blocked.");
+  }
 
   await User.updateOne({ _id: user._id }, { $set: { lastLoginAt: new Date() } });
   forgetSession(user._id);           // emailVerified may have just changed
@@ -199,14 +206,14 @@ function sendPasswordChangedEmail(email) {
   }) });
 }
 
-const forgotIpLimiter = limiter(60 * 60 * 1000, 5, "auth/too-many-requests", "Too many reset requests. Please try again in an hour.");
+const forgotIpLimiter = limiter(60 * 60 * 1000, 5, "auth/too-many-requests", "Too many reset requests. Please try again in an hour.", "forgotIpLimiter");
 // 3 per hour per email: when it's over, we still answer the same 200 (so nobody learns anything) but don't send
 const forgotEmailLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, limit: 3, standardHeaders: false, legacyHeaders: false,
   keyGenerator: req => "forgot:" + (normalizeEmail(req.body?.email) || "-"),
-  handler: (req, res, next) => { req.skipResetEmail = true; next(); },
+  handler: (req, res, next) => { rateLimited(req, "forgotEmailLimiter"); req.skipResetEmail = true; next(); },
 });
-const resetLimiter = limiter(60 * 60 * 1000, 10, "auth/too-many-requests", "Too many tries. Please try again in an hour.");
+const resetLimiter = limiter(60 * 60 * 1000, 10, "auth/too-many-requests", "Too many tries. Please try again in an hour.", "resetLimiter");
 
 // ALWAYS the same answer, whether the email has an account or not
 router.post("/auth/forgot", forgotIpLimiter, forgotEmailLimiter, async (req, res) => {
@@ -265,7 +272,10 @@ router.post("/auth/change-password", authLimiter, async (req, res) => {
   } else {
     if (!current) return fail(res, 400, "auth/missing-password", "Please type your current password.");
     const bad = await checkPassword(user, current, { status: 400, code: "auth/wrong-password", error: "Your current password is wrong." });
-    if (bad) return fail(res, bad.status, bad.code, bad.error);
+    if (bad) {
+      security(req.log, "password.change_failed", { uid, reason: bad.code }, "change password: wrong current password");
+      return fail(res, bad.status, bad.code, bad.error);
+    }
     if (current === next) return fail(res, 400, "auth/weak-password", "The new password must be different from the current one.");
   }
   const weak = validatePassword(next, user.email);
@@ -333,6 +343,7 @@ router.post("/write", writeLimiter, async (req, res) => {
   const t = await checkToken(req.cookies?.[COOKIE_NAME]);
   const uid = t ? t.id : null;
   const { op, path, data, merge } = req.body || {};
+  req.fbWrite = { uid, op, path: typeof path === "string" ? path.slice(0, 200) : null };   // for the security log
   if (!["set", "update", "delete", "add"].includes(op)) throw new FbError("invalid-argument", "Bad op");
   const out = await writeDoc({ op, path, data, merge: !!merge }, uid, { verified: !!(t && t.verified) });
 
@@ -352,7 +363,11 @@ router.post("/write", writeLimiter, async (req, res) => {
 
 // errors from this router → { code, error } so the website can show a friendly message
 export function fbErrors(err, req, res, next) {
-  if (err instanceof FbError) return fail(res, err.status, err.code, err.message);
+  if (err instanceof FbError) {
+    if (err.code === "permission-denied" && req.fbWrite)     // P11: someone tried to change what they may not
+      security(req.log, "write.denied", { ...req.fbWrite, reason: err.message }, "write refused by the rules");
+    return fail(res, err.status, err.code, err.message);
+  }
   if (err.type === "entity.too.large") return fail(res, 413, "resource-exhausted", "That is too big to save (max 1 MB).");
   if (err.type === "entity.parse.failed") return fail(res, 400, "invalid-argument", "Bad JSON.");
   next(err);

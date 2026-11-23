@@ -104,6 +104,11 @@ const OPS = { "==": "$eq", "!=": "$ne", "<": "$lt", "<=": "$lte", ">": "$gt", ">
 // filter / sort / limit → raw rows (NO permission check: callers must do that, see runQuery)
 export async function queryRows(path, q = {}) {
   const { col } = parsePath(path, "col");
+  // P11: bad input is a 400, not a crash (e.g. { where: 5 } used to give a 500). No query at all = no filter.
+  if (q == null) q = {};
+  if (typeof q !== "object" || Array.isArray(q)) throw new FbError("invalid-argument", "Bad query");
+  for (const k of ["where", "orderBy"])
+    if (q[k] !== undefined && !(Array.isArray(q[k]) && q[k].every(Array.isArray))) throw new FbError("invalid-argument", `Bad ${k}`);
   const filter = { col };
   for (const [field, op, value] of (q.where || []).slice(0, 5)) {
     if (!FIELD.test(field) || !OPS[op]) throw new FbError("invalid-argument", "Bad query");

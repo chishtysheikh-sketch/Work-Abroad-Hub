@@ -2,6 +2,7 @@
 //   POST   /      → upload one image (field "file", kind=photo|logo) → { url: "/api/files/<id>" }
 //   GET    /:id   → the image (public, cached for a year: a new image always gets a new id)
 //   DELETE /:id   → only the person who uploaded it
+import { rateLimited } from "../utils/logger.js";
 import { Router } from "express";
 import mongoose from "mongoose";
 import multer from "multer";
@@ -22,7 +23,7 @@ const upload = multer({
 const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false,
   keyGenerator: req => "upload:" + req.user.id,
-  handler: (req, res) => fail(res, 429, "resource-exhausted", "Too many uploads. Please try again in an hour."),
+  handler: (req, res) => { rateLimited(req, "uploads"); fail(res, 429, "resource-exhausted", "Too many uploads. Please try again in an hour."); },
 });
 
 // any logged-in account, verified or not: the sign-up form lets new users pick a photo / logo

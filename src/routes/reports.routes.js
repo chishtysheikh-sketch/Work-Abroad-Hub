@@ -3,6 +3,7 @@
 //   { kind: "user",    targetId: <uid>,                              reason }
 //   { kind: "message", targetId: <msgId>,  chatId: <chatId>,         reason }   (only members of that chat)
 // Max 10 reports per person per 24 hours; one open report per person per thing.
+import { rateLimited } from "../utils/logger.js";
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { requireAuth } from "../middleware/auth.js";
@@ -19,7 +20,7 @@ const PER_DAY = 10;
 
 router.use(rateLimit({                    // per IP, against floods; the 10/day per user is counted in the DB below
   windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false,
-  handler: (req, res) => fail(res, 429, "resource-exhausted", "Too many requests, slow down."),
+  handler: (req, res) => { rateLimited(req, "reports"); fail(res, 429, "resource-exhausted", "Too many requests, slow down."); },
 }));
 
 router.post("/", requireAuth, async (req, res) => {

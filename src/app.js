@@ -4,7 +4,12 @@ import cookieParser from "cookie-parser";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
 import path from "node:path";
+import fs from "node:fs";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import mongoose from "mongoose";
+import pinoHttp from "pino-http";
+import { logger, rateLimited } from "./utils/logger.js";
 import authRoutes from "./routes/auth.routes.js";
 import jobRoutes from "./routes/jobs.routes.js";
 import applicationRoutes from "./routes/applications.routes.js";
@@ -39,16 +44,34 @@ const cspDirectives = {
 
 app.set("trust proxy", 1);
 
-// P10: warn about slow requests (path only: query strings can hold tokens)
+// P11: one log line per request, each with its own id (also sent back as the X-Request-Id header,
+// so a user can tell us "it failed, id 3f2a…" and we find the exact lines).
+// Logged: method, path (NO query string: it can hold tokens), status, time. Never headers, cookies or bodies.
+// Static files, socket.io polling and health checks are "debug" (hidden at the default level "info").
 const SLOW_MS = 500;
-app.use((req, res, next) => {
-  const t0 = process.hrtime.bigint();
-  res.on("finish", () => {
-    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-    if (ms > SLOW_MS) console.warn(`🐢 slow request ${Math.round(ms)} ms: ${req.method} ${req.path} → ${res.statusCode}`);
-  });
-  next();
-});
+const pathOf = req => (req.originalUrl || req.url || "").split("?")[0];
+const quiet = req => !pathOf(req).startsWith("/api/") || pathOf(req) === "/api/health";
+// measure the time FIRST: this "finish" listener must run before pino-http's, so customLogLevel can see it
+app.use((req, res, next) => { const t0 = Date.now(); res.on("finish", () => { res.responseTime = Date.now() - t0; }); next(); });
+app.use(pinoHttp({
+  logger,
+  genReqId: (req, res) => { const id = crypto.randomUUID(); res.setHeader("X-Request-Id", id); return id; },
+  customAttributeKeys: { reqId: "reqId" },
+  quietReqLogger: true,                              // req.log lines carry only the reqId
+  serializers: {
+    req: req => ({ method: req.method, url: pathOf(req.raw || req) }),
+    res: res => ({ statusCode: res.statusCode }),
+  },
+  customLogLevel: (req, res, err) => {
+    if (err || res.statusCode >= 500) return "error";
+    if (res.responseTime > SLOW_MS) return "warn";    // P10's slow-request warning, now in the same line
+    return quiet(req) ? "debug" : "info";
+  },
+  customSuccessMessage: (req, res, ms) => `${ms > SLOW_MS ? "🐢 slow " : ""}${req.method} ${pathOf(req)} → ${res.statusCode} ${Math.round(ms)}ms`,
+  customErrorMessage: (req, res) => `${req.method} ${pathOf(req)} → ${res.statusCode} failed`,
+  // the real error (with its stack) is logged by the error handler; don't add pino-http's made-up one
+  customErrorObject: (req, res, err, val) => { const { err: _ignored, ...rest } = val; return rest; },
+}));
 app.use(helmet({
   contentSecurityPolicy: { useDefaults: false, reportOnly: CSP_REPORT_ONLY, directives: cspDirectives },
   // map tiles + address lookup (OpenStreetMap) need to know which site is asking
@@ -63,14 +86,16 @@ app.use(cookieParser());
 
 // browsers send CSP violation reports here; we just log a short line
 app.post("/api/csp-report",
-  rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false }),
+  rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false,
+              handler: (req, res) => { rateLimited(req, "csp-report"); res.status(429).end(); } }),
   express.json({ limit: "20kb", type: ["application/csp-report", "application/json", "application/reports+json"] }),
   (req, res) => {
     const r = req.body?.["csp-report"] || req.body?.[0]?.body || req.body || {};
     const blocked = r["blocked-uri"] || r.blockedURL || "?";
     const directive = r["violated-directive"] || r.effectiveDirective || "?";
     const where = r["source-file"] || r.sourceFile || r["document-uri"] || r.documentURL || "";
-    console.warn(`🛡️  CSP ${CSP_REPORT_ONLY ? "report" : "blocked"}: ${directive} → ${String(blocked).slice(0, 200)} ${where ? "(" + String(where).slice(0, 120) + ")" : ""}`);
+    req.log.warn({ event: "csp", directive, blocked: String(blocked).slice(0, 200), where: String(where).split("?")[0].slice(0, 120) },
+      `🛡️  CSP ${CSP_REPORT_ONLY ? "report" : "blocked"}: ${directive} → ${String(blocked).slice(0, 200)}`);
     res.status(204).end();
   });
 
@@ -81,7 +106,18 @@ app.use("/api/fb", express.json({ limit: "1mb" }), fbRoutes, fbErrors);
 app.use("/api/files", fileRoutes);
 
 app.use(express.json({ limit: "300kb" }));
-app.get("/api/health", (req, res) => res.json({ ok: true, time: new Date() }));
+// P11: is the server healthy? For uptime monitors / load balancers. 503 when MongoDB is down.
+const VERSION = JSON.parse(fs.readFileSync(path.join(__dirname, "../package.json"), "utf8")).version;
+app.get("/api/health", async (req, res) => {
+  let db = "down";
+  if (mongoose.connection.readyState === 1) {
+    try {
+      await Promise.race([mongoose.connection.db.admin().ping(), new Promise((_, no) => setTimeout(() => no(new Error("ping timeout")), 1000))]);
+      db = "up";
+    } catch (err) { req.log.error({ err }, "health: MongoDB ping failed"); }
+  }
+  res.status(db === "up" ? 200 : 503).json({ ok: db === "up", uptime: Math.round(process.uptime()), db, version: VERSION });
+});
 app.use("/api/auth", authRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/applications", applicationRoutes);

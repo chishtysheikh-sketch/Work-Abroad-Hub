@@ -3,6 +3,7 @@
 //   GET  /unread-count             → { unreadCount }
 //   POST /read  { ids: [...] } | { all: true }
 //   GET  /settings · POST /settings { application, status, message }  (email on/off)
+import { rateLimited } from "../utils/logger.js";
 import { Router } from "express";
 import mongoose from "mongoose";
 import rateLimit from "express-rate-limit";
@@ -20,7 +21,7 @@ const EMAIL_KEYS = ["application", "status", "message"];
 
 router.use(rateLimit({
   windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false,
-  handler: (req, res) => fail(res, 429, "resource-exhausted", "Too many requests, slow down."),
+  handler: (req, res) => { rateLimited(req, "notifications"); fail(res, 429, "resource-exhausted", "Too many requests, slow down."); },
 }));
 router.use(requireAuth);
 

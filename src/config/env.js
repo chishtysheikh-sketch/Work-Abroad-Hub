@@ -3,6 +3,7 @@
 // instead of failing later in a confusing way.
 import "dotenv/config";
 import { z } from "zod";
+import { logger } from "../utils/logger.js";
 
 // empty values in .env (e.g. "SMTP_PASS=") count as "not set"
 const optional = (s) => z.preprocess(v => (v === "" ? undefined : v), s.optional());
@@ -22,13 +23,15 @@ const schema = z.object({
   // Google sign-in (optional: without both, the Google buttons stay hidden)
   GOOGLE_CLIENT_ID:     optional(z.string().trim().regex(/^[\w-]+\.apps\.googleusercontent\.com$/, "must look like 1234-abc.apps.googleusercontent.com (paste only the ID, no label)")),
   GOOGLE_CLIENT_SECRET: optional(z.string().trim().min(10, "looks too short (it usually starts with GOCSPX-)")),
+  // P11: how much to log: fatal | error | warn | info (default) | debug | trace
+  LOG_LEVEL: optional(z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])),
 });
 
 const result = schema.safeParse(process.env);
 if (!result.success) {
-  console.error("\n❌ Your .env settings have a problem:");
-  for (const issue of result.error.issues) console.error(`   - ${issue.path.join(".")}: ${issue.message}`);
-  console.error("   Fix .env (see .env.example) and start the server again.\n");
+  logger.fatal("❌ Your .env settings have a problem:\n" +
+    result.error.issues.map(i => `   - ${i.path.join(".")}: ${i.message}`).join("\n") +
+    "\n   Fix .env (see .env.example) and start the server again.");
   process.exit(1);
 }
 

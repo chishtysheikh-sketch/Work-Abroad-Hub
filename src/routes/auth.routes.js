@@ -6,10 +6,13 @@ import User from "../models/User.js";
 import { validate } from "../middleware/validate.js";
 import { setAuthCookie, clearAuthCookie, requireAuth } from "../middleware/auth.js";
 import { validatePassword } from "../utils/password.js";
-import { passwordLogin, BCRYPT_COST } from "../utils/login.js";
+import { passwordLogin, BCRYPT_COST, logFailedLogin } from "../utils/login.js";
+
+import { rateLimited } from "../utils/logger.js";
 
 const router = Router();
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false,
+  handler: (req, res) => { rateLimited(req, "authLimiter(old /api/auth)"); res.status(429).json({ error: "Too many tries. Wait a moment.", requestId: req.id }); } });
 
 const registerSchema = z.object({
   email: z.email(),
@@ -49,7 +52,7 @@ const loginSchema = z.object({ email: z.email(), password: z.string().min(1).max
 
 router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
   const r = await passwordLogin(req.body.email.toLowerCase(), req.body.password);
-  if (!r.user) return res.status(r.status).json({ code: r.code, error: r.error });
+  if (!r.user) { logFailedLogin(req, req.body.email, r); return res.status(r.status).json({ code: r.code, error: r.error }); }
   setAuthCookie(res, r.user);
   res.json({ user: r.user.toPublic() });
 });

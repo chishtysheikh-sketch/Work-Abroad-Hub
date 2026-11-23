@@ -2,7 +2,8 @@
 // If SMTP isn't set up in .env, the email is printed in the server console instead,
 // so sign-up and everything else still work while developing.
 import nodemailer from "nodemailer";
-import { env } from "../config/env.js";
+import { env, isProd } from "../config/env.js";
+import { logger, shortHash } from "./logger.js";
 
 export const mailEnabled = !!(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS);
 
@@ -17,17 +18,20 @@ const FROM = env.MAIL_FROM || (env.SMTP_USER ? `Work Abroad Hub <${env.SMTP_USER
 
 export async function sendMail({ to, subject, html, text }) {
   if (!mailEnabled) {
+    // development: print the email so the links can be clicked / copied (one link per line, nothing else on it)
+    // production: links hold login / reset tokens → never in the logs; only say that nothing was sent
+    if (isProd) { logger.warn({ to: shortHash(to), subject }, "📧 email NOT sent: SMTP is not set up"); return { printed: false }; }
     const links = (text || "").match(/https?:\/\/\S+/g) || [];
-    console.log(`\n📧 EMAIL (not sent: SMTP is not set up in .env)\n   to: ${to}\n   subject: ${subject}${links.map(l => "\n   link: " + l).join("")}\n`);
+    logger.info(`📧 EMAIL (not sent: SMTP is not set up in .env)\n   to: ${to}\n   subject: ${subject}${links.map(l => "\n   link: " + l).join("")}\n`);
     return { printed: true };
   }
   try {
     const info = await transport.sendMail({ from: FROM, to, subject, html, text });
-    console.log(`📧 Email sent to ${to}: ${subject}`);
+    logger.info({ to: shortHash(to), subject }, "📧 email sent");
     return { sent: true, id: info.messageId };
   } catch (e) {
     // don't crash a sign-up because Gmail is down; the user can press "Resend"
-    console.error(`📧 Email to ${to} FAILED: ${e.message}`);
+    logger.error({ to: shortHash(to), subject, err: e }, "📧 email FAILED");
     return { failed: true, error: e.message };
   }
 }

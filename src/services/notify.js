@@ -5,6 +5,7 @@ import { emitToUser } from "../sockets/fbLive.js";
 import { sendMail, emailTemplate } from "../utils/mailer.js";
 import { env } from "../config/env.js";
 import { load } from "../fb/core.js";
+import { logger } from "../utils/logger.js";
 
 const MSG_EMAIL_DELAY = 10 * 60 * 1000;     // message emails only if still unread after 10 minutes
 const EMAIL_TYPES = ["application", "status", "message"];   // types the user can turn emails on/off for
@@ -41,7 +42,7 @@ function scheduleMessageEmail(id) {
     try {
       const n = await Notification.findById(key).lean();
       if (n && !n.read) await emailFor(n);
-    } catch (e) { console.error("🔔 message email failed:", e.message); }
+    } catch (err) { logger.error({ err }, "🔔 message email failed"); }
   }, MSG_EMAIL_DELAY);
   t.unref?.();
   pendingMsgEmail.set(key, t);
@@ -70,7 +71,7 @@ export async function createNotification(uid, data) {
 
   const n = await Notification.create({ user: uid, ...base });
   emitToUser(uid, "notif", n.toClient());
-  emailFor(n).catch(e => console.error("🔔 email failed:", e.message));
+  emailFor(n).catch(err => logger.error({ err, type: n.type }, "🔔 email failed"));
   return n;
 }
 
@@ -145,5 +146,5 @@ async function afterWrite(out, uid) {
 
 // never let a notification problem break (or slow down) the save itself
 export function notifyAfterWrite(out, uid) {
-  afterWrite(out, uid).catch(e => console.error("🔔 notification failed:", e.message));
+  afterWrite(out, uid).catch(err => logger.error({ err, col: out.col }, "🔔 notification failed"));
 }
