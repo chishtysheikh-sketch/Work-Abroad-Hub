@@ -17,6 +17,7 @@ import { env, googleEnabled } from "../config/env.js";
 import { OAuth2Client } from "google-auth-library";
 import { readDoc, runQuery, writeDoc, FbError } from "../fb/core.js";
 import { notify } from "../sockets/fbLive.js";
+import { deleteImagesOf } from "../utils/images.js";
 
 const router = Router();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -298,6 +299,7 @@ router.delete("/auth/me", async (req, res) => {
   const uid = await uidOf(req);
   if (!uid) return fail(res, 401, "auth/requires-recent-login", "Please log in.");
   await FbDoc.deleteMany({ col: { $in: ["users", "postings"] }, docId: uid });
+  await deleteImagesOf(uid);               // P7: their photos / logos in GridFS
   await User.deleteOne({ _id: uid });
   forgetSession(uid);
   clearAuthCookie(res);

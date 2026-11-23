@@ -167,6 +167,23 @@ window.wahAuth = {
   },
 };
 
+// P7: upload a photo / logo as a file → "/api/files/<id>" (saved in the profile instead of the image itself)
+window.wahUpload = async function (fileOrBlob, kind) {
+  const fd = new FormData();
+  fd.append("kind", kind);                                        // text fields first, then the file
+  fd.append("file", fileOrBlob, fileOrBlob.name || `${kind}.jpg`);
+  let r;
+  try { r = await fetch("/api/files", { method: "POST", body: fd, credentials: "same-origin" }); }
+  catch { throw fbError("unavailable", "Can't reach the server. Check your connection and try again."); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.url) {
+    const e = fbError(d.code || `server-${r.status}`, d.error || "Upload failed. Please try again.");
+    e.fromServer = !!d.error;
+    throw e;
+  }
+  return d.url;
+};
+
 /* ---------- references ---------- */
 export function collection(db, ...parts) { return { type: "collection", path: parts.join("/") }; }
 export function doc(db, ...parts) {

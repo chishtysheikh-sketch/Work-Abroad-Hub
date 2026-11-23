@@ -10,6 +10,7 @@ import jobRoutes from "./routes/jobs.routes.js";
 import applicationRoutes from "./routes/applications.routes.js";
 import chatRoutes from "./routes/chats.routes.js";
 import fbRoutes, { fbErrors } from "./routes/fb.routes.js";
+import fileRoutes from "./routes/files.routes.js";
 import { errorHandler, notFound } from "./middleware/error.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -57,6 +58,9 @@ app.post("/api/csp-report",
 
 // the website's data (profiles can hold a small photo, so allow up to 1 MB here)
 app.use("/api/fb", express.json({ limit: "1mb" }), fbRoutes, fbErrors);
+
+// P7: profile photos / company logos as files (GridFS), multipart upload
+app.use("/api/files", fileRoutes);
 
 app.use(express.json({ limit: "300kb" }));
 app.get("/api/health", (req, res) => res.json({ ok: true, time: new Date() }));

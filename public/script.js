@@ -133,7 +133,7 @@ async function initBackend(){
   if(!configReady()) return startLocal("Firebase isn't set up yet (fill in firebase-config.js), so accounts and jobs are saved on this device only.");
   try{
     const base = `https://www.gstatic.com/firebasejs/${FB_VERSION}/`;
-    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js"),import("./wah-fb.js"),import("./wah-fb.js")]);
+    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1795500000"),import("./wah-fb.js?v=1795500000"),import("./wah-fb.js?v=1795500000")]);
     const app = appMod.initializeApp(firebaseConfig);
     backend.fb = {...authMod, ...fsMod};
     backend.auth = authMod.getAuth(app);
@@ -1421,13 +1421,14 @@ if($("themeBtn")) $("themeBtn").onclick = ()=>{
 };
 
 /* ==========================================================================
-   PROFILE PHOTO for students (saved small, inside their Firestore profile)
+   PROFILE PHOTO for students (P7: uploaded as a file, the profile keeps "/api/files/<id>")
    (Paste this block right above "/* ---------- init" )
    ========================================================================== */
-const PHOTO_RE = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
+// old profiles: a small JPEG data URL inside the document · new (P7): /api/files/<24 hex>
+const PHOTO_RE = /^(data:image\/jpeg;base64,[A-Za-z0-9+/=]+|\/api\/files\/[a-f0-9]{24})$/;
 let photoCtx = null;   // {value} while the student profile form is open
 
-// Read a picked image, crop it to a square and shrink it to 256×256 JPEG (~20–30 KB)
+// Read a picked image, crop it to a square and shrink it to 512×512 JPEG (a Blob, ready to upload)
 function shrinkPhoto(file){
   return new Promise((resolve,reject)=>{
     if(!file || !/^image\//.test(file.type)) return reject(new Error(L("Please choose an image file (JPG or PNG).","이미지 파일(JPG, PNG)을 선택해 주세요.")));
@@ -1435,14 +1436,33 @@ function shrinkPhoto(file){
     const url = URL.createObjectURL(file), img = new Image();
     img.onload = ()=>{
       const side = Math.min(img.width,img.height), c = document.createElement("canvas");
-      c.width = c.height = 256;
-      c.getContext("2d").drawImage(img,(img.width-side)/2,(img.height-side)/2,side,side,0,0,256,256);
+      const out = Math.min(512, side);
+      c.width = c.height = out;
+      c.getContext("2d").drawImage(img,(img.width-side)/2,(img.height-side)/2,side,side,0,0,out,out);
       URL.revokeObjectURL(url);
-      resolve(c.toDataURL("image/jpeg",0.82));
+      c.toBlob(b=> b ? resolve(b) : reject(new Error(L("Couldn't read that image.","이미지를 읽을 수 없어요."))), "image/jpeg", 0.9);
     };
     img.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error(L("Couldn't read that image.","이미지를 읽을 수 없어요."))); };
     img.src = url;
   });
+}
+// shrink + upload → "/api/files/<id>". Shows "Uploading…" in msgEl and greys out the pick button meanwhile.
+async function uploadPhoto(file, kind, msgEl, pickEl){
+  const busy = on=>{ if(pickEl){ pickEl.style.pointerEvents=on?"none":""; pickEl.style.opacity=on?".6":""; } };
+  if(msgEl){ msgEl.textContent=L("Uploading…","올리는 중…"); msgEl.style.color="var(--muted)"; }
+  busy(true);
+  try{
+    const blob = await shrinkPhoto(file);
+    if(typeof window.wahUpload!=="function") throw new Error(L("Uploads aren't ready yet. Reload the page and try again.","업로드를 준비 중이에요. 새로고침 후 다시 시도해 주세요."));
+    const url = await window.wahUpload(blob, kind);
+    if(msgEl){ msgEl.textContent=""; msgEl.style.color=""; }
+    return url;
+  }catch(e){
+    const msg = (e && e.message) || L("Upload failed. Please try again.","업로드에 실패했어요. 다시 시도해 주세요.");
+    if(msgEl){ msgEl.style.color=""; msgEl.textContent=msg; }
+    toast(L("Upload failed: ","업로드 실패: ")+msg);
+    throw e;
+  }finally{ busy(false); }
 }
 const myPhoto = () => (account && account.role==="student" && account.profile && PHOTO_RE.test(account.profile.photo||"")) ? account.profile.photo : "";
 
@@ -1466,9 +1486,9 @@ studentForm = function(){
   };
   $("photoInput").onchange = async e=>{
     $("photoErr").textContent="";
-    try{ photoCtx.value = await shrinkPhoto(e.target.files[0]); show(); }
-    catch(err){ $("photoErr").textContent = err.message; }
-    e.target.value="";
+    const file = e.target.files[0]; e.target.value="";
+    try{ const url = await uploadPhoto(file, "photo", $("photoErr"), f.querySelector(".photo-pick")); if(photoCtx){ photoCtx.value = url; show(); } }
+    catch{ /* message already shown */ }
   };
   $("photoRemove").onclick = ()=>{ photoCtx.value=""; show(); };
   f.elements.name.addEventListener("input", ()=>{ if(!photoCtx.value) show(); });
@@ -2474,9 +2494,10 @@ renderPortalCompany = function(D){
   f.querySelectorAll("[data-cover]").forEach(b=>b.onclick=()=>{ coDraft.cover=b.dataset.cover; f.querySelectorAll("[data-cover]").forEach(x=>x.classList.toggle("on",x===b)); refresh(); });
   $("coLogoIn").onchange = async e=>{
     $("coLogoErr").textContent="";
-    try{ coDraft.logo = await shrinkPhoto(e.target.files[0]); refresh(); }
-    catch(er){ $("coLogoErr").textContent=er.message; $("coLogoErr").classList.add("show"); }
-    e.target.value="";
+    const file = e.target.files[0]; e.target.value="";
+    $("coLogoErr").classList.add("show");
+    try{ coDraft.logo = await uploadPhoto(file, "logo", $("coLogoErr"), f.querySelector('label[for="coLogoIn"]')); $("coLogoErr").classList.remove("show"); refresh(); }
+    catch{ /* message already shown */ }
   };
   $("coLogoDel").onclick=()=>{ delete coDraft.logo; refresh(); };
   $("coBasic").onclick=()=>openAuth("employer");

@@ -52,6 +52,27 @@ export async function canRead(col, id, data, uid, load, cache) {
   return false;
 }
 
+// P7: a "photo" / "logo" field in users / postings may only be one of our uploaded files
+// (/api/files/<id>) or an OLD small data URL (from before P7). No outside links, no huge blobs.
+const FILE_URL_RE = /^\/api\/files\/[a-f0-9]{24}$/;
+const OLD_DATA_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+const MAX_OLD_DATA = 300 * 1024;
+const IMAGE_KEYS = new Set(["photo", "logo"]);
+export function badImage(v, depth = 0) {
+  if (depth > 20 || v === null || typeof v !== "object") return "";
+  for (const [k, x] of Object.entries(v)) {
+    if (IMAGE_KEYS.has(k) && x !== undefined && x !== null && x !== "") {
+      if (typeof x !== "string") return `${k} must be an image link.`;
+      if (FILE_URL_RE.test(x)) continue;
+      if (x.length <= MAX_OLD_DATA && OLD_DATA_RE.test(x)) continue;
+      return x.startsWith("data:") ? `The ${k} is too big. Please upload it again.` : `The ${k} must be an uploaded image.`;
+    }
+    const why = badImage(x, depth + 1);
+    if (why) return why;
+  }
+  return "";
+}
+
 export const NEED_VERIFY = "Please verify your email first. Check your inbox (and spam).";
 
 // op = "create" | "update" | "delete". Returns "" when allowed, otherwise a reason.
@@ -71,7 +92,8 @@ export async function canWrite(op, col, id, oldData, newData, uid, load, ctx = {
   if (top === "users" && !sub) {
     if (uid !== id) return "Not your profile.";
     if (op === "delete") return "";
-    return ROLES.includes(n.role) ? "" : "Role must be student or employer.";
+    if (!ROLES.includes(n.role)) return "Role must be student or employer.";
+    return badImage(n);
   }
 
   if (top === "postings" && !sub) {
@@ -80,6 +102,8 @@ export async function canWrite(op, col, id, oldData, newData, uid, load, ctx = {
     if ((await myRole(uid, load)) !== "employer") return "Only employers can post jobs.";
     if (!Array.isArray(n.jobs)) return "jobs must be a list.";
     if (n.jobs.length > 50) return "Max 50 jobs.";
+    const img = badImage(n);
+    if (img) return img;
     const low = n.jobs.find(j => j && j.status === "open" && tooLow(j));
     if (low) return `Pay is below the minimum wage (₩${MIN_WAGE.toLocaleString()}/hour): ${String(low.title || "").slice(0, 40)}`;
     return "";
