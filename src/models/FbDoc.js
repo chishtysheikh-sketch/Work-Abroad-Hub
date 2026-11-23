@@ -12,8 +12,10 @@ const fbDocSchema = new Schema({
 }, { timestamps: true, minimize: false });
 
 fbDocSchema.index({ col: 1, docId: 1 }, { unique: true });
-fbDocSchema.index({ col: 1, "data.studentUid": 1 });
-fbDocSchema.index({ col: 1, "data.employerUid": 1 });
-fbDocSchema.index({ col: 1, "data.at": 1 });
+// P10: filter + sort in ONE index (runQuery always sorts by …, docId) → no in-memory sort.
+//   applications / chats by member: where(studentUid|employerUid ==) · messages: orderBy("at")
+fbDocSchema.index({ col: 1, "data.studentUid": 1, docId: 1 });
+fbDocSchema.index({ col: 1, "data.employerUid": 1, docId: 1 });
+fbDocSchema.index({ col: 1, "data.at": 1, docId: 1 });
 
 export default mongoose.model("FbDoc", fbDocSchema);

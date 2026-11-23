@@ -55,6 +55,20 @@ export async function load(col, id) {
   return d ? d.data : null;
 }
 
+// P10: one loader per request — the rules often need the same users/chats doc several times
+// (e.g. every message row of a chat checks the chat). Each doc is read from MongoDB at most once.
+export function requestLoader() {
+  const seen = new Map();
+  return (col, id) => {
+    const k = col + "\u0000" + id;
+    if (!seen.has(k)) seen.set(k, load(col, id));
+    return seen.get(k);
+  };
+}
+
+// P10: collections anyone may read in full (canRead doesn't depend on who asks) → live results can be shared
+export const isPublicCol = col => col === "postings";
+
 // P9: jobs an admin hid are only visible to their own employer (in their dashboard)
 export function visible(col, id, data, uid) {
   if (col !== "postings" || !data || !Array.isArray(data.jobs) || uid === id) return data;
@@ -79,14 +93,16 @@ function keepAdminFields(col, old, next, data) {
 // ---------- read ----------
 export async function readDoc(path, uid) {
   const { col, id } = parsePath(path, "doc");
-  const data = await load(col, id);
-  if (!(await canRead(col, id, data, uid, load))) throw new FbError("permission-denied", "Missing or insufficient permissions.", 403);
+  const L = requestLoader();
+  const data = await L(col, id);
+  if (!(await canRead(col, id, data, uid, L))) throw new FbError("permission-denied", "Missing or insufficient permissions.", 403);
   return { id, exists: !!data, data: visible(col, id, data, uid) || null };
 }
 
 const OPS = { "==": "$eq", "!=": "$ne", "<": "$lt", "<=": "$lte", ">": "$gt", ">=": "$gte", "array-contains": "$eq" };
 
-export async function runQuery(path, q = {}, uid) {
+// filter / sort / limit → raw rows (NO permission check: callers must do that, see runQuery)
+export async function queryRows(path, q = {}) {
   const { col } = parsePath(path, "col");
   const filter = { col };
   for (const [field, op, value] of (q.where || []).slice(0, 5)) {
@@ -101,9 +117,14 @@ export async function runQuery(path, q = {}, uid) {
   }
   sort.docId = 1;
   const limit = Math.min(Math.max(Number(q.limit) || 500, 1), 500);
-  const rows = await FbDoc.find(filter).sort(sort).limit(limit).select("docId data").lean();
-  const cache = {}, docs = [];
-  for (const r of rows) if (await canRead(col, r.docId, r.data, uid, load, cache)) docs.push({ id: r.docId, data: visible(col, r.docId, r.data, uid) });
+  const rows = await FbDoc.find(filter).sort(sort).limit(limit).select({ _id: 0, docId: 1, data: 1 }).lean();
+  return { col, rows };
+}
+
+export async function runQuery(path, q = {}, uid) {
+  const { col, rows } = await queryRows(path, q);
+  const L = requestLoader(), cache = {}, docs = [];
+  for (const r of rows) if (await canRead(col, r.docId, r.data, uid, L, cache)) docs.push({ id: r.docId, data: visible(col, r.docId, r.data, uid) });
   return docs;
 }
 
@@ -118,7 +139,8 @@ export async function writeDoc({ op, path, data, merge }, uid, ctx = {}) {
   if (op === "add") { ({ col } = parsePath(path, "col")); id = crypto.randomBytes(10).toString("hex"); }
   else ({ col, id } = parsePath(path, "doc"));
 
-  const old = op === "add" ? null : await load(col, id);
+  const L = requestLoader();
+  const old = op === "add" ? null : await L(col, id);
   let next;
   if (op === "delete") next = null;
   else if (op === "update") {
@@ -129,7 +151,7 @@ export async function writeDoc({ op, path, data, merge }, uid, ctx = {}) {
   const kind = op === "delete" ? "delete" : old ? "update" : "create";
   if (kind === "delete" && !old) return { id, col };
   if (kind !== "delete") keepAdminFields(col, old, next, data);
-  const why = await canWrite(kind, col, id, old, next, uid, load, ctx);
+  const why = await canWrite(kind, col, id, old, next, uid, L, ctx);
   if (why) throw new FbError(why === NEED_VERIFY ? "failed-precondition" : "permission-denied", why, 403);
 
   if (kind === "delete") await FbDoc.deleteOne({ col, docId: id });
@@ -144,5 +166,6 @@ export async function writeDoc({ op, path, data, merge }, uid, ctx = {}) {
     if (Object.keys(sets).length) await FbDoc.updateOne({ col, docId: id }, { $set: sets });
   } else await FbDoc.updateOne({ col, docId: id }, { $set: { data: next } });
 
-  return { id, col, data: next, old, kind };     // old + kind: P8 notifications need them
+  // old + kind: P8 notifications need them · load: the docs the rules already read (NOT this one: it just changed)
+  return { id, col, data: next, old, kind, load: L };
 }

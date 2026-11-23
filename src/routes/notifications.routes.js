@@ -10,6 +10,9 @@ import { requireAuth } from "../middleware/auth.js";
 import Notification from "../models/Notification.js";
 import User from "../models/User.js";
 import { markRead } from "../services/notify.js";
+// same shape as Notification#toClient, for .lean() rows
+const toClient = n => ({ id: String(n._id), type: n.type, title: n.title, body: n.body || "", link: n.link || {},
+                         count: n.count || 1, read: !!n.read, createdAt: n.createdAt });
 
 const router = Router();
 const fail = (res, status, code, error) => res.status(status).json({ code, error });
@@ -32,8 +35,11 @@ router.get("/", async (req, res) => {
     if (isNaN(d)) return fail(res, 400, "invalid-argument", "before must be a date (ISO).");
     filter.createdAt = { $lt: d };
   }
-  const rows = await Notification.find(filter).sort({ createdAt: -1, _id: -1 }).limit(limit + 1);
-  res.json({ items: rows.slice(0, limit).map(n => n.toClient()), unreadCount: await unread(uid), more: rows.length > limit });
+  const [rows, unreadCount] = await Promise.all([                       // P10: both at once, plain objects
+    Notification.find(filter).sort({ createdAt: -1, _id: -1 }).limit(limit + 1).lean(),
+    unread(uid),
+  ]);
+  res.json({ items: rows.slice(0, limit).map(toClient), unreadCount, more: rows.length > limit });
 });
 
 router.get("/unread-count", async (req, res) => {

@@ -15,7 +15,8 @@ import { checkEmail, normalizeEmail } from "../utils/email.js";
 import { sendMail, emailTemplate } from "../utils/mailer.js";
 import { env, googleEnabled } from "../config/env.js";
 import { OAuth2Client } from "google-auth-library";
-import { readDoc, runQuery, writeDoc, FbError } from "../fb/core.js";
+import { readDoc, runQuery, writeDoc, parsePath, FbError } from "../fb/core.js";
+import { sharedResult, personalDocs, isPublicCol } from "../fb/shared.js";
 import { notify } from "../sockets/fbLive.js";
 import { deleteImagesOf } from "../utils/images.js";
 import { notifyAfterWrite } from "../services/notify.js";
@@ -293,7 +294,7 @@ router.post("/auth/logout-all", async (req, res) => {
 
 router.get("/auth/me", async (req, res) => {
   const t = await checkToken(req.cookies?.[COOKIE_NAME]);
-  const user = t && await User.findById(t.id);
+  const user = t && await User.findById(t.id).select("email name emailVerified isAdmin").lean();   // P10: only what shape() needs
   if (!user) { if (req.cookies?.[COOKIE_NAME]) clearAuthCookie(res); return res.json({ user: null }); }
   res.json({ user: shape(user) });
 });
@@ -317,7 +318,15 @@ router.post("/doc", readLimiter, async (req, res) => {
 });
 
 router.post("/query", readLimiter, async (req, res) => {
-  res.json({ docs: await runQuery(req.body?.path, req.body?.q, await uidOf(req)) });
+  const uid = await uidOf(req), path = req.body?.path, q = req.body?.q;
+  const { col } = parsePath(path, "col");
+  if (isPublicCol(col)) {                   // P10: the job board — cached JSON shared by everyone, no DB read per request
+    const r = await sharedResult(path, col, q);
+    const own = personalDocs(r, uid);
+    if (own) return res.json({ docs: own });
+    return res.type("application/json").send(`{"docs":${r.json}}`);
+  }
+  res.json({ docs: await runQuery(path, q, uid) });
 });
 
 router.post("/write", writeLimiter, async (req, res) => {
@@ -332,7 +341,7 @@ router.post("/write", writeLimiter, async (req, res) => {
     const set = { role: out.data.role };
     const nm = out.data.profile?.name || out.data.company?.name;
     if (typeof nm === "string" && nm.trim()) set.name = nm.trim().slice(0, 60);
-    const user = await User.findByIdAndUpdate(uid, { $set: set }, { returnDocument: "after" });
+    const user = await User.findByIdAndUpdate(uid, { $set: set }, { returnDocument: "after", projection: { role: 1, tokenVersion: 1 } }).lean();
     if (user) setAuthCookie(res, user);
   }
 

@@ -113,7 +113,7 @@ async function afterWrite(out, uid) {
   }
 
   if (top === "chats" && sub === "messages" && kind === "create") {
-    const chatId = col.split("/")[1], c = await load("chats", chatId);
+    const chatId = col.split("/")[1], c = await (out.load || load)("chats", chatId);   // P10: the rules already read it
     if (!c) return;
     const fromStudent = n.from === c.studentUid;
     const to = fromStudent ? c.employerUid : c.studentUid;

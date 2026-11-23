@@ -64,6 +64,7 @@ const socketReady = loadSocketLib().then(() => {
   socket.on("connect", () => subs.forEach(s => socket.emit("sub", s.msg)));   // (re)subscribe everything
   socket.on("snap", m => {
     const s = subs.get(m.id); if (!s) return;
+    if (m.bin) { try { m.docs = JSON.parse(new TextDecoder().decode(m.bin)); } catch (e) { console.error("bad snap", e); return; } }   // P10: shared bytes
     if (m.error) { subs.delete(m.id); socket.emit("unsub", { id: m.id }); s.onError(fbError(m.error, m.message)); }
     else s.onData(m);
   });
@@ -275,7 +276,7 @@ export async function addDoc(ref, data) {
 /* ---------- live ---------- */
 export function onSnapshot(ref, onNext, onError = e => console.error(e)) {
   const id = "s" + nextId++;
-  const msg = ref.type === "doc" ? { id, kind: "doc", path: ref.path } : { id, kind: "query", path: ref.path, q: ref.q || {} };
+  const msg = ref.type === "doc" ? { id, kind: "doc", path: ref.path } : { id, kind: "query", path: ref.path, q: ref.q || {}, bin: true };
   subs.set(id, {
     msg, onError,
     onData: m => { try { onNext(m.doc ? docSnap(m.doc.id, m.doc.exists ? m.doc.data : null) : querySnap(m.docs || [])); } catch (e) { console.error(e); } },

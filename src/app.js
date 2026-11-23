@@ -38,6 +38,17 @@ const cspDirectives = {
 };
 
 app.set("trust proxy", 1);
+
+// P10: warn about slow requests (path only: query strings can hold tokens)
+const SLOW_MS = 500;
+app.use((req, res, next) => {
+  const t0 = process.hrtime.bigint();
+  res.on("finish", () => {
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    if (ms > SLOW_MS) console.warn(`🐢 slow request ${Math.round(ms)} ms: ${req.method} ${req.path} → ${res.statusCode}`);
+  });
+  next();
+});
 app.use(helmet({
   contentSecurityPolicy: { useDefaults: false, reportOnly: CSP_REPORT_ONLY, directives: cspDirectives },
   // map tiles + address lookup (OpenStreetMap) need to know which site is asking
@@ -80,7 +91,17 @@ app.use("/api/reports", reportRoutes);               // P9: "🚩 Report" from u
 app.use("/api/admin", adminRoutes);                  // P9: admin panel (requireAdmin inside)
 app.use("/api", notFound);
 
-app.use(express.static(path.join(__dirname, "../public")));
+// P10: browser caching. Our .css/.js/images are always linked with ?v=<number> (bumped on every change),
+// so those requests may be cached for 7 days without asking again. Pages (.html) and anything requested
+// WITHOUT ?v= are "no-cache": the browser keeps a copy but checks it first (cheap 304 thanks to the ETag).
+const LONG_CACHE = new Set([".css", ".js", ".png", ".webp", ".woff2", ".jpg", ".jpeg", ".svg", ".ico"]);
+app.use(express.static(path.join(__dirname, "../public"), {
+  maxAge: "7d",
+  setHeaders(res, file) {
+    const versioned = LONG_CACHE.has(path.extname(file).toLowerCase()) && /[?&]v=/.test(res.req?.originalUrl || "");
+    res.setHeader("Cache-Control", versioned ? "public, max-age=604800, immutable" : "no-cache");
+  },
+}));
 app.use(errorHandler);
 
 export default app;

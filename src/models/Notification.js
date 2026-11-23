@@ -20,7 +20,7 @@ const notificationSchema = new Schema({
   createdAt: { type: Date, default: Date.now },             // also "last updated" for grouped messages
 }, { versionKey: false });
 
-notificationSchema.index({ user: 1, createdAt: -1 });
+notificationSchema.index({ user: 1, createdAt: -1, _id: -1 });   // P10: the list sorts by createdAt, then _id
 notificationSchema.index({ user: 1, read: 1 });
 notificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 3600 });   // deleted after 90 days
 // at most ONE unread message notification per person per chat (new messages update it)

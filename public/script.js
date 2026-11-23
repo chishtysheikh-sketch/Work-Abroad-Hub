@@ -1,4 +1,4 @@
-import { firebaseConfig } from "./firebase-config.js";
+import { firebaseConfig } from "./firebase-config.js?v=1795900000";
 
 const MIN_WAGE = 10320;
 const CATS = {
@@ -135,7 +135,7 @@ async function initBackend(){
   if(!configReady()) return startLocal("Firebase isn't set up yet (fill in firebase-config.js), so accounts and jobs are saved on this device only.");
   try{
     const base = `https://www.gstatic.com/firebasejs/${FB_VERSION}/`;
-    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1795700000"),import("./wah-fb.js?v=1795700000"),import("./wah-fb.js?v=1795700000")]);
+    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1795900000"),import("./wah-fb.js?v=1795900000"),import("./wah-fb.js?v=1795900000")]);
     const app = appMod.initializeApp(firebaseConfig);
     backend.fb = {...authMod, ...fsMod};
     backend.auth = authMod.getAuth(app);
