@@ -7,7 +7,6 @@ import mongoose from "mongoose";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
 import { requireAuth } from "../middleware/auth.js";
-import { NEED_VERIFY } from "../fb/rules.js";
 import { images, sniff, processImage, saveImage, urlOf, KINDS, MAX_UPLOAD } from "../utils/images.js";
 
 const router = Router();
@@ -19,8 +18,6 @@ const upload = multer({
   limits: { fileSize: MAX_UPLOAD, files: 1, fields: 5, parts: 6 },
 }).single("file");
 
-const verified = (req, res, next) => req.user.verified ? next() : fail(res, 403, "failed-precondition", NEED_VERIFY);
-
 // 30 uploads per hour per account (runs after requireAuth, so req.user is known)
 const uploadLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, limit: 30, standardHeaders: true, legacyHeaders: false,
@@ -28,7 +25,8 @@ const uploadLimiter = rateLimit({
   handler: (req, res) => fail(res, 429, "resource-exhausted", "Too many uploads. Please try again in an hour."),
 });
 
-router.post("/", requireAuth, verified, uploadLimiter, (req, res, next) => {
+// any logged-in account, verified or not: the sign-up form lets new users pick a photo / logo
+router.post("/", requireAuth, uploadLimiter, (req, res, next) => {
   upload(req, res, err => {
     if (!err) return next();
     if (err.code === "LIMIT_FILE_SIZE") return fail(res, 413, "resource-exhausted", "That image is too big (max 5 MB).");
