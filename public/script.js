@@ -600,7 +600,7 @@ function loginForm(){
   $("forgotBtn").onclick = async ()=>{
     const email=f.elements.email.value.trim();
     if(!EMAIL_RE.test(email)){ $("loginErr").textContent=L("Type your email above first.","위에 이메일을 먼저 입력해 주세요."); return; }
-    try{ await F.sendPasswordResetEmail(backend.auth,email); $("loginErr").style.color="var(--teal)"; $("loginErr").textContent=L("Password reset email sent — check your inbox.","비밀번호 재설정 메일을 보냈어요."); }
+    try{ await F.sendPasswordResetEmail(backend.auth,email); $("loginErr").style.color="var(--teal)"; $("loginErr").textContent=L("If this email has an account, we sent a reset link. It works for 30 minutes — check your inbox (and spam).","이 이메일로 가입된 계정이 있으면 재설정 링크를 보냈어요. 30분 동안 유효해요. 받은편지함(스팸함)을 확인해 주세요."); }
     catch(e){ $("loginErr").textContent=authErr(e); }
   };
   $("gLogin").onclick = async ()=>{
@@ -2271,11 +2271,50 @@ function renderPortalNotifications(){
   el.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{ el.dataset.tab=b.dataset.tab; renderPortalNotifications(); });
   $("pMarkRead").onclick=()=>{ store.set(seenKey(),Date.now()); renderPortal(); };
 }
+/* ---- P5: "Security" card used by BOTH settings pages (employer portal + student dashboard) ---- */
+function securityCardHTML(){
+  return `<div class="p-card p-set"><h3>🔒 ${L("Security","보안")}</h3>
+      <div class="p-setrow"><span>${L("Change password","비밀번호 변경")}</span><button class="btn btn-ghost btn-sm" data-sec="toggle">${L("Change","변경")}</button></div>
+      <form class="p-pwform" data-sec="form" hidden novalidate>
+        <label>${L("Current password","현재 비밀번호")}<input type="password" name="cur" autocomplete="current-password" maxlength="72"></label>
+        <label>${L("New password","새 비밀번호")}<input type="password" name="pw1" autocomplete="new-password" maxlength="72" placeholder="${L("8+ characters, a letter and a number","8자 이상, 영문과 숫자 포함")}"></label>
+        <label>${L("Confirm new password","새 비밀번호 확인")}<input type="password" name="pw2" autocomplete="new-password" maxlength="72"></label>
+        <p class="p-pwerr" data-sec="err" role="alert"></p>
+        <div class="p-pwbtns"><button type="button" class="btn btn-ghost btn-sm" data-sec="cancel">${L("Cancel","취소")}</button><button type="submit" class="btn btn-primary btn-sm">${L("Save password","비밀번호 저장")}</button></div>
+      </form>
+      <div class="p-setrow"><span>${L("Log out of all devices (phones, other computers)","모든 기기에서 로그아웃 (휴대폰, 다른 컴퓨터)")}</span><button class="btn btn-ghost btn-sm" data-sec="all">${L("Log out everywhere","모든 기기 로그아웃")}</button></div></div>`;
+}
+function bindSecurityCard(el){
+  const f=el.querySelector('[data-sec="form"]'), err=el.querySelector('[data-sec="err"]');
+  if(!f) return;
+  const open=on=>{ f.hidden=!on; err.textContent=""; if(on) f.elements.cur.focus(); else f.reset(); };
+  el.querySelector('[data-sec="toggle"]').onclick=()=>open(f.hidden);
+  el.querySelector('[data-sec="cancel"]').onclick=()=>open(false);
+  f.onsubmit=async e=>{
+    e.preventDefault(); err.textContent="";
+    const cur=f.elements.cur.value, pw1=f.elements.pw1.value, pw2=f.elements.pw2.value, email=(backend.user&&backend.user.email)||"";
+    if(!cur){ err.textContent=L("Please type your current password.","현재 비밀번호를 입력해 주세요."); return; }
+    const bad=passwordProblem(pw1,email); if(bad){ err.textContent=bad; return; }
+    if(pw1!==pw2){ err.textContent=L("The two new passwords don't match.","새 비밀번호가 서로 달라요."); return; }
+    if(!window.wahAuth){ err.textContent=L("Not available right now.","지금은 사용할 수 없어요."); return; }
+    const btn=f.querySelector('[type="submit"]'); btn.disabled=true;
+    try{ await window.wahAuth.changePassword(cur,pw1); open(false); toast(L("Password changed. Other devices were logged out.","비밀번호가 변경됐어요. 다른 기기는 로그아웃됐어요.")); }
+    catch(e2){ err.textContent=e2.fromServer?e2.message:authErr(e2); }
+    finally{ btn.disabled=false; }
+  };
+  el.querySelector('[data-sec="all"]').onclick=async()=>{
+    if(!window.wahAuth) return;
+    if(!confirm(L("Log out on every device, including this one?","이 기기를 포함한 모든 기기에서 로그아웃할까요?"))) return;
+    try{ await window.wahAuth.logoutAll(); toast(L("Logged out everywhere","모든 기기에서 로그아웃됐어요")); setTimeout(()=>location.reload(),700); }
+    catch(e2){ toast(e2.fromServer?e2.message:authErr(e2)); }
+  };
+}
 function renderPortalSettings(D){
   const el=$("pg_settings"), email=(backend.user&&backend.user.email)||D.co.email||"";
   el.innerHTML = `<div class="p-head"><div><h2>${L("Settings","설정")}</h2><p>${L("Manage your account and preferences.","계정과 환경을 관리하세요.")}</p></div></div>
     <div class="p-card p-set"><h3>👤 ${L("Account","계정")}</h3><div class="p-setrow"><span>${L("Login email","로그인 이메일")}</span><b>${esc(email||"—")}</b></div><div class="p-setrow"><span>${L("Member type","회원 유형")}</span><b>Employer</b></div>
       <div class="p-setrow"><span>${L("Company details","기업 정보")}</span><button class="btn btn-ghost btn-sm" id="pSetCo">${L("Edit","수정")}</button></div></div>
+    ${securityCardHTML()}
     <div class="p-card p-set"><h3>🎨 ${L("Appearance","화면")}</h3>
       <div class="p-setrow"><span>${L("Dark mode","다크 모드")}</span><label class="switch"><input type="checkbox" id="pSetDark" ${document.documentElement.dataset.theme==="dark"?"checked":""}><i></i></label></div>
       <div class="p-setrow"><span>${L("Language","언어")}</span><div class="lang"><button data-l="en" class="${lang==="en"?"on":""}">EN</button><button data-l="ko" class="${lang==="ko"?"on":""}">한국어</button></div></div></div>
@@ -2285,6 +2324,7 @@ function renderPortalSettings(D){
   $("pSetDark").onchange=()=>{ $("themeBtn").click(); renderPortal(); };
   el.querySelectorAll("[data-l]").forEach(b=>b.onclick=()=>document.querySelector(`.lang button[data-lang="${b.dataset.l}"]`).click());
   $("pSetDel").onclick=openDeleteAccount;
+  bindSecurityCard(el);
   el.querySelectorAll('a[href="#privacy"],a[href="#terms"]').forEach(a=>a.addEventListener("click",()=>document.body.classList.remove("dash")));
 }
 function filterPortalLists(){
@@ -2767,6 +2807,7 @@ function stSettings(el){
   const email=(backend.user&&backend.user.email)||(account.profile||{}).email||"";
   el.innerHTML = `<div class="p-head"><div><h2>⚙️ ${L("Settings","설정")}</h2></div></div>
     <div class="p-card p-set"><h3>👤 ${L("Account","계정")}</h3><div class="p-setrow"><span>${L("Login email","로그인 이메일")}</span><b>${esc(email||"—")}</b></div><div class="p-setrow"><span>${L("Member type","회원 유형")}</span><b>${L("Student","학생")}</b></div></div>
+    ${securityCardHTML()}
     <div class="p-card p-set"><h3>🎨 ${L("Appearance","화면")}</h3>
       <div class="p-setrow"><span>${L("Dark mode","다크 모드")}</span><label class="switch"><input type="checkbox" id="sSetDark" ${document.documentElement.dataset.theme==="dark"?"checked":""}><i></i></label></div>
       <div class="p-setrow"><span>${L("Language","언어")}</span><div class="lang"><button data-l="en" class="${lang==="en"?"on":""}">EN</button><button data-l="ko" class="${lang==="ko"?"on":""}">한국어</button></div></div></div>
@@ -2776,6 +2817,7 @@ function stSettings(el){
   el.querySelectorAll("[data-l]").forEach(b=>b.onclick=()=>{ document.querySelector(`.lang button[data-lang="${b.dataset.l}"]`).click(); renderStudentDash(); });
   el.querySelectorAll('a[href="#privacy"],a[href="#terms"]').forEach(a=>a.addEventListener("click",()=>closeStudentDash()));
   $("sSetDel").onclick=openDeleteAccount;
+  bindSecurityCard(el);
 }
 
 /* ---- hooks ---- */
@@ -3156,7 +3198,7 @@ function renderLoginPage(){
   $("lpForgot").onclick = async ()=>{
     const email=f.elements.email.value.trim();
     if(!EMAIL_RE.test(email)){ showErr(L("Type your email above first, then tap “Forgot password?”.","위에 이메일을 먼저 입력해 주세요.")); f.elements.email.focus(); return; }
-    try{ await F.sendPasswordResetEmail(backend.auth,email); showErr(L("Password reset email sent — check your inbox.","비밀번호 재설정 메일을 보냈어요."), true); }
+    try{ await F.sendPasswordResetEmail(backend.auth,email); showErr(L("If this email has an account, we sent a reset link. It works for 30 minutes — check your inbox (and spam).","이 이메일로 가입된 계정이 있으면 재설정 링크를 보냈어요. 30분 동안 유효해요. 받은편지함(스팸함)을 확인해 주세요."), true); }
     catch(e){ showErr(authErr(e)); }
   };
   $("lpGoogle").onclick = async ()=>{

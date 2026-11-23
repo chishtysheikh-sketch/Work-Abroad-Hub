@@ -10,7 +10,7 @@ import FbDoc from "../models/FbDoc.js";
 import { setAuthCookie, clearAuthCookie, COOKIE_NAME } from "../middleware/auth.js";
 import { checkToken, forgetSession } from "../utils/session.js";
 import { validatePassword } from "../utils/password.js";
-import { passwordLogin, BCRYPT_COST } from "../utils/login.js";
+import { passwordLogin, checkPassword, BCRYPT_COST } from "../utils/login.js";
 import { checkEmail, normalizeEmail } from "../utils/email.js";
 import { sendMail, emailTemplate } from "../utils/mailer.js";
 import { env } from "../config/env.js";
@@ -70,7 +70,7 @@ router.post("/auth/signup", authLimiter, async (req, res) => {
     email, passwordHash: await bcrypt.hash(password, BCRYPT_COST),
     role: "student",                       // becomes the real role when the profile form is saved
     name: email.split("@")[0].slice(0, 60), agreedAt: new Date(),
-    ...v.set, emailVerifyCount: 1, emailVerifyDay: today(),
+    ...v.set, emailVerifyCount: 1, emailVerifyDay: today(), lastLoginAt: new Date(),
   });
   sendVerifyEmail(email, v.token);         // not awaited: sign-up stays fast; failures are logged
   setAuthCookie(res, user);
@@ -116,6 +116,102 @@ router.post("/auth/resend-verification", authLimiter, async (req, res) => {
   await User.updateOne({ _id: uid }, { $set: { ...v.set, emailVerifyCount: count + 1, emailVerifyDay: today() } });
   const r = await sendVerifyEmail(user.email, v.token);
   if (r.failed) return fail(res, 502, "unavailable", "We couldn't send the email right now. Please try again later.");
+  res.json({ ok: true });
+});
+
+// ---------- P5: forgot / reset / change password ----------
+const RESET_MS = 30 * 60 * 1000;
+const FORGOT_OK = { ok: true, message: "If this email has an account, we sent a reset link." };
+
+function sendPasswordChangedEmail(email) {
+  return sendMail({ to: email, subject: "Your password was changed", ...emailTemplate({
+    title: "Your password was changed",
+    lines: ["The password of your Work Abroad Hub account was just changed, and every device was logged out.",
+            "If this wasn't you, reset it again right away: open the site, press Log in, then “Forgot password?”."],
+    button: "Open Work Abroad Hub", url: `${env.APP_URL}/`,
+  }) });
+}
+
+const forgotIpLimiter = limiter(60 * 60 * 1000, 5, "auth/too-many-requests", "Too many reset requests. Please try again in an hour.");
+// 3 per hour per email: when it's over, we still answer the same 200 (so nobody learns anything) but don't send
+const forgotEmailLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, limit: 3, standardHeaders: false, legacyHeaders: false,
+  keyGenerator: req => "forgot:" + (normalizeEmail(req.body?.email) || "-"),
+  handler: (req, res, next) => { req.skipResetEmail = true; next(); },
+});
+const resetLimiter = limiter(60 * 60 * 1000, 10, "auth/too-many-requests", "Too many tries. Please try again in an hour.");
+
+// ALWAYS the same answer, whether the email has an account or not
+router.post("/auth/forgot", forgotIpLimiter, forgotEmailLimiter, async (req, res) => {
+  const email = normalizeEmail(req.body?.email);
+  if (!EMAIL_RE.test(email) || req.skipResetEmail) return res.json(FORGOT_OK);
+  const user = await User.findOne({ email }).select("_id email blocked");
+  if (user && !user.blocked) {
+    const token = crypto.randomBytes(32).toString("hex");
+    await User.updateOne({ _id: user._id }, { $set: { resetHash: sha256(token), resetExp: new Date(Date.now() + RESET_MS) } });
+    sendMail({ to: user.email, subject: "Reset your password", ...emailTemplate({   // not awaited: same speed for every email
+      title: "Reset your password",
+      lines: ["Someone (hopefully you) asked to reset the password of your Work Abroad Hub account.",
+              "Press the button to choose a new password."],
+      button: "Choose a new password", url: `${env.APP_URL}/reset-password.html?token=${token}`,
+      note: "This link expires in 30 minutes and works only once.",
+    }) });
+  }
+  res.json(FORGOT_OK);
+});
+
+// the reset page sends { token, password }
+router.post("/auth/reset", resetLimiter, async (req, res) => {
+  const token = String(req.body?.token || "");
+  const password = String(req.body?.password || "");
+  const expired = () => fail(res, 400, "auth/expired-action-code", "This reset link has expired or was already used. Please ask for a new one.");
+  if (!/^[a-f0-9]{64}$/.test(token)) return expired();
+  const hash = sha256(token);
+  const user = await User.findOne({ resetHash: hash, resetExp: { $gt: new Date() } }).select("_id email blocked");
+  if (!user || user.blocked) return expired();
+  const weak = validatePassword(password, user.email);
+  if (weak) return fail(res, 400, "auth/weak-password", weak);       // link stays valid so they can try again
+  const r = await User.updateOne({ _id: user._id, resetHash: hash }, {      // resetHash in the filter → the link works only once
+    $set: { passwordHash: await bcrypt.hash(password, BCRYPT_COST), hasPassword: true, passwordChangedAt: new Date(),
+            emailVerified: true, failedLogins: 0, lockUntil: null },
+    $unset: { resetHash: 1, resetExp: 1 },
+    $inc: { tokenVersion: 1 },                                       // logs out every device
+  });
+  if (!r.modifiedCount) return expired();
+  forgetSession(user._id);
+  sendPasswordChangedEmail(user.email);
+  res.json({ ok: true });
+});
+
+// settings page: { currentPassword, newPassword }
+router.post("/auth/change-password", authLimiter, async (req, res) => {
+  const uid = await uidOf(req);
+  if (!uid) return fail(res, 401, "auth/requires-recent-login", "Please log in.");
+  const user = await User.findById(uid).select("+passwordHash");
+  if (!user) return fail(res, 401, "auth/requires-recent-login", "Please log in.");
+  const current = String(req.body?.currentPassword || ""), next = String(req.body?.newPassword || "");
+
+  if (user.hasPassword === false) {
+    // Google-only account: may set a first password, but only right after logging in
+    if (!user.lastLoginAt || Date.now() - user.lastLoginAt > 10 * 60 * 1000)
+      return fail(res, 401, "auth/requires-recent-login", "For your safety, log out and in again (or use “Forgot password?”), then set your password.");
+  } else {
+    if (!current) return fail(res, 400, "auth/missing-password", "Please type your current password.");
+    const bad = await checkPassword(user, current, { status: 400, code: "auth/wrong-password", error: "Your current password is wrong." });
+    if (bad) return fail(res, bad.status, bad.code, bad.error);
+    if (current === next) return fail(res, 400, "auth/weak-password", "The new password must be different from the current one.");
+  }
+  const weak = validatePassword(next, user.email);
+  if (weak) return fail(res, 400, "auth/weak-password", weak);
+
+  const updated = await User.findByIdAndUpdate(uid, {
+    $set: { passwordHash: await bcrypt.hash(next, BCRYPT_COST), hasPassword: true, passwordChangedAt: new Date(), failedLogins: 0, lockUntil: null },
+    $unset: { resetHash: 1, resetExp: 1 },
+    $inc: { tokenVersion: 1 },                    // every other device is logged out…
+  }, { returnDocument: "after" });
+  forgetSession(uid);
+  setAuthCookie(res, updated);                     // …but this one gets a fresh cookie and stays in
+  sendPasswordChangedEmail(user.email);
   res.json({ ok: true });
 });
 

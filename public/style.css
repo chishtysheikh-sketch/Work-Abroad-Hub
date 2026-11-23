@@ -1202,3 +1202,13 @@ html:not([data-theme="dark"]) .lp-logo .logo-mark{color:#059669}
 .p-click:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 @keyframes pFlash{0%,60%{background:rgba(255,138,61,.28);box-shadow:0 0 0 2px var(--brand-2)}100%{background:transparent;box-shadow:0 0 0 0 transparent}}
 .p-flash{animation:pFlash 2s ease-out}
+
+/* P5: change-password form in Settings → Security */
+.p-pwform{display:grid;gap:10px;padding:12px 0 14px;border-top:1px solid var(--line)}
+.p-pwform[hidden]{display:none}
+.p-pwform label{display:grid;gap:5px;font-size:13px;font-weight:700;color:var(--ink-2)}
+.p-pwform input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:15px;background:var(--card);color:var(--ink)}
+.p-pwform input:focus{outline:2px solid var(--brand);outline-offset:1px}
+.p-pwerr{min-height:1em;font-size:13px;font-weight:600;color:#dc2626}
+.p-pwerr:empty{display:none}
+.p-pwbtns{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}

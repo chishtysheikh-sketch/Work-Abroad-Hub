@@ -25,9 +25,9 @@ async function api(path, body, method = "POST") {
   return d;
 }
 
-// hide buttons this server doesn't support yet (Google login, password reset email)
+// hide buttons this server doesn't support yet (Google login comes in P6)
 const style = document.createElement("style");
-style.textContent = ".google-btn,.google-top,.lp-google,.or,#forgotBtn,#lpForgot{display:none!important}";
+style.textContent = ".google-btn,.google-top,.lp-google,.or{display:none!important}";
 document.head.appendChild(style);
 
 /* ---------- live connection (Socket.IO) ---------- */
@@ -109,7 +109,20 @@ export async function deleteUser() {
 }
 export class GoogleAuthProvider {}
 export async function signInWithPopup() { throw fbError("auth/operation-not-allowed", "Google login is not set up yet."); }
-export async function sendPasswordResetEmail() { throw fbError("auth/operation-not-allowed", "Password reset email is not set up yet."); }
+// Firebase-like: resolves the same way whether or not the email has an account
+export async function sendPasswordResetEmail(a, email) { await api("/auth/forgot", { email }); }
+
+// for the Settings pages (script.js): change password / log out everywhere
+window.wahAuth = {
+  async changePassword(currentPassword, newPassword) {
+    await api("/auth/change-password", { currentPassword, newPassword });   // this device gets a new cookie
+    await reconnect();
+  },
+  async logoutAll() {
+    await api("/auth/logout-all", {});
+    auth.currentUser = null;
+  },
+};
 
 /* ---------- references ---------- */
 export function collection(db, ...parts) { return { type: "collection", path: parts.join("/") }; }
