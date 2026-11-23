@@ -17,10 +17,25 @@ function minPayFor(type, hrs) {
   const holiday = hrs >= 15 ? Math.min(hrs, 40) / 40 * 8 : 0;
   return Math.ceil(MIN_WAGE * (hrs + holiday) * 209 / 48);
 }
-const tooLow = j => {
-  const min = minPayFor(j.payType, Number(j.payHours));
-  return min != null && Number(j.pay) > 0 && Number(j.pay) < min;
-};
+// P12 fix: an OPEN job must have a real pay that meets the minimum wage. Before, the check was skipped
+// when pay was 0 / missing / text, when a daily or monthly job had no hours, or for an unknown pay type
+// (so the API accepted e.g. a ₩1 monthly job). Old jobs without a pay type still count as hourly.
+const PAY_TYPES = ["hourly", "daily", "monthly"];
+function payProblem(j) {
+  const type = j.payType || "hourly";
+  const title = String(j.title || "").slice(0, 40);
+  if (!PAY_TYPES.includes(type)) return `Pay type must be hourly, daily or monthly: ${title}`;
+  const pay = typeof j.pay === "number" ? j.pay : typeof j.pay === "string" && j.pay.trim() ? Number(j.pay) : NaN;
+  if (!Number.isFinite(pay) || pay <= 0) return `Please enter the pay: ${title}`;
+  let hrs = null;
+  if (type !== "hourly") {
+    hrs = Number(j.payHours);
+    const max = type === "daily" ? 24 : 168;
+    if (!(hrs > 0 && hrs <= max)) return `Please enter the hours per ${type === "daily" ? "day (1–24)" : "week (1–168)"}: ${title}`;
+  }
+  if (pay < minPayFor(type, hrs)) return `Pay is below the minimum wage (₩${MIN_WAGE.toLocaleString()}/hour): ${title}`;
+  return "";
+}
 
 // split "chats/abc/messages" → { top: "chats", parentId: "abc", sub: "messages" }
 export function colInfo(col) {
@@ -122,8 +137,11 @@ export async function canWrite(op, col, id, oldData, newData, uid, load, ctx = {
     if (img) return img;
     const hid = hiddenJobChange(o.jobs, n.jobs);
     if (hid) return hid;
-    const low = n.jobs.find(j => j && j.status === "open" && tooLow(j));
-    if (low) return `Pay is below the minimum wage (₩${MIN_WAGE.toLocaleString()}/hour): ${String(low.title || "").slice(0, 40)}`;
+    for (const j of n.jobs) {
+      if (!j || typeof j !== "object" || j.status !== "open") continue;
+      const why = payProblem(j);
+      if (why) return why;
+    }
     return "";
   }
 
@@ -131,7 +149,14 @@ export async function canWrite(op, col, id, oldData, newData, uid, load, ctx = {
     if (op === "create") {
       if ((await myRole(uid, load)) !== "student") return "Only students can apply.";
       if (n.studentUid !== uid) return "Wrong student.";
-      return n.status === "new" ? "" : "New applications must have status 'new'.";
+      if (n.status !== "new") return "New applications must have status 'new'.";
+      // P12 fix: the application must be for a real open job of that employer, with its real title.
+      // (Before, anyone could "apply" to any user id with any title → a notification + email with their text.)
+      const posting = typeof n.employerUid === "string" && n.employerUid ? await load("postings", n.employerUid) : null;
+      const job = (Array.isArray(posting?.jobs) ? posting.jobs : []).find(j => j && n.jobId != null && String(j.id) === String(n.jobId));
+      if (!job || job.status !== "open" || job.hiddenByAdmin) return "This job isn't open any more.";
+      if (String(n.jobTitle ?? "") !== String(job.title || "")) return "This job has changed. Please reload the page and try again.";
+      return "";
     }
     if (op === "update") {
       if (o.employerUid !== uid) return "Only the employer can change this.";
