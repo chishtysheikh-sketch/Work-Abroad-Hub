@@ -42,6 +42,11 @@ export function notify(col, docId) {
   }
 }
 
+// P8: send an event to every open tab / device of one user
+export function emitToUser(uid, event, data) {
+  if (nsp && uid) nsp.to("user:" + uid).emit(event, data);
+}
+
 export function registerFbLive(io) {
   nsp = io.of("/fb");
   nsp.use(async (socket, next) => {
@@ -53,6 +58,7 @@ export function registerFbLive(io) {
   });
 
   nsp.on("connection", (socket) => {
+    if (socket.data.uid) socket.join("user:" + socket.data.uid);     // P8: personal notifications
     socket.on("sub", ({ id, kind, path, q } = {}) => {
       if (typeof id !== "string" || socket.data.subs.size >= 50) return;
       try {

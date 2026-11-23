@@ -184,6 +184,40 @@ window.wahUpload = async function (fileOrBlob, kind) {
   return d.url;
 };
 
+// P8: notifications stored on the server, the same on every device.
+//   list(before) → {items, unreadCount, more} · markRead(ids | "all") · unreadCount() · settings() · saveSettings(obj)
+//   onNew(cb): cb(notification) when one arrives or a grouped one changes (live, via the socket)
+//   onRead(cb): cb({unreadCount, ids?, chatId?, all?}) when some were marked read (on ANY device)
+//   onSync(cb): cb() after (re)connecting, e.g. after login: reload the list, events may have been missed
+const notifCbs = { new: new Set(), read: new Set(), sync: new Set() };
+const fireN = (kind, x) => notifCbs[kind].forEach(cb => { try { cb(x); } catch (e) { console.error(e); } });
+async function napi(path, body) {
+  let r;
+  try {
+    r = await fetch("/api/notifications" + path, {
+      method: body ? "POST" : "GET", credentials: "same-origin",
+      headers: body ? { "Content-Type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch { throw fbError("unavailable", "Can't reach the server."); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const e = fbError(d.code || `server-${r.status}`, d.error || "Server error"); e.fromServer = !!d.error; throw e; }
+  return d;
+}
+const on = kind => cb => { notifCbs[kind].add(cb); return () => notifCbs[kind].delete(cb); };
+window.wahNotifications = {
+  list: (before, limit = 20) => napi(`?limit=${limit}` + (before ? `&before=${encodeURIComponent(before)}` : "")),
+  markRead: idsOrAll => napi("/read", idsOrAll === "all" ? { all: true } : { ids: [].concat(idsOrAll) }),
+  unreadCount: () => napi("/unread-count").then(d => d.unreadCount),
+  settings: () => napi("/settings").then(d => d.notifyEmail),
+  saveSettings: obj => napi("/settings", obj).then(d => d.notifyEmail),
+  onNew: on("new"), onRead: on("read"), onSync: on("sync"),
+};
+socketReady.then(() => {
+  socket.on("notif", n => fireN("new", n));
+  socket.on("notifRead", d => fireN("read", d));
+  socket.on("connect", () => fireN("sync"));
+}).catch(() => {});
+
 /* ---------- references ---------- */
 export function collection(db, ...parts) { return { type: "collection", path: parts.join("/") }; }
 export function doc(db, ...parts) {

@@ -99,6 +99,8 @@ function persist(){ store.set("wah_saved",saved); $("savedCount").textContent=sa
 /* ---------- backend: Firebase when configured, this device otherwise ---------- */
 const FB_VERSION = "10.12.2";
 const backend = {mode:"loading", uid:null, user:null, fb:null, auth:null, db:null, signingUp:false, awaitingLogin:false, signupRole:null, note:""};
+// P8: notifications from the server (filled after login, kept live by the socket)
+const NS = {items:[], unread:0, more:false, uid:null, settings:null, ready:false};
 let account = null;          // signed-in user's profile {role, loggedIn, profile, applied}
 let postings = [];           // every employer's posting doc [{uid, company, jobs}]
 let applications = [];       // applications sent to this employer's jobs
@@ -133,7 +135,7 @@ async function initBackend(){
   if(!configReady()) return startLocal("Firebase isn't set up yet (fill in firebase-config.js), so accounts and jobs are saved on this device only.");
   try{
     const base = `https://www.gstatic.com/firebasejs/${FB_VERSION}/`;
-    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1795500000"),import("./wah-fb.js?v=1795500000"),import("./wah-fb.js?v=1795500000")]);
+    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1795600000"),import("./wah-fb.js?v=1795600000"),import("./wah-fb.js?v=1795600000")]);
     const app = appMod.initializeApp(firebaseConfig);
     backend.fb = {...authMod, ...fsMod};
     backend.auth = authMod.getAuth(app);
@@ -156,7 +158,7 @@ async function initBackend(){
     if(backend.signingUp) return;           // the sign-up form finishes the setup itself
     if(unsubApps){ unsubApps(); unsubApps=null; }
     applications = [];
-    if(!user){ account=null; document.body.classList.remove("dash"); renderAll(); return; }
+    if(!user){ account=null; document.body.classList.remove("dash"); renderAll(); afterAuthP8(); return; }
     try{
       const snap = await F.getDoc(F.doc(backend.db,"users",user.uid));
       account = snap.exists() ? {...snap.data(), loggedIn:true}
@@ -174,6 +176,7 @@ async function initBackend(){
       if(account.role==="employer") showView("dashboard");
     }
     backend.signupRole = null;
+    afterAuthP8();
   });
 }
 
@@ -2141,12 +2144,10 @@ const relTime = t => { const s=(Date.now()-t)/1000; if(s<3600) return Math.max(1
 const avatarHtml = a => PHOTO_RE.test(a.photo||"") ? `<img class="p-av" src="${a.photo}" alt="">` : `<span class="p-av">${esc(initials(a.name||"?"))}</span>`;
 const statusPill = s => `<span class="p-pill st-${esc(s||"new")}">${esc(APP_STATUS[s]||"New")}</span>`;
 
+// P8: the list comes from the SERVER (same on every device); "Job expiring soon" is still worked out here
 function notifItems(){
-  const D=portalData(), items=[];
-  D.apps.forEach(a=>items.push({t:a.createdAt||0, type:"app", ref:String(a.id), jobId:String(a.jobId), icon:"👥", title:L("New job application","새 지원서"), text:`${a.name} ${L("applied for","님이 지원:")} “${a.jobTitle}”`}));
-  D.jobs.forEach(j=>items.push({t:j.createdAt||0, type:"job", ref:String(j.id), icon:"✅", title:L("Job published","공고 게시"), text:`“${j.title}” ${L("is live on the job board.","가 게시되었어요.")}`}));
+  const D=portalData(), items=NS.items.map(srvItem);
   D.soon.forEach(j=>items.push({t:Date.now()-1, type:"job", ref:String(j.id), key:`job-soon:${j.id}:${j.deadline}`, icon:"⏰", title:L("Job expiring soon","마감 임박"), text:`“${j.title}” ${L("closes on","마감:")} ${j.deadline}`}));
-  if(typeof chat!=="undefined") chat.list.filter(unreadOf).forEach(c=>items.push({t:c.updatedAt||0, type:"chat", ref:String(c.id), icon:"💬", title:L("New message","새 메시지"), text:`${c.studentName||"Student"}: ${c.lastText||""}`}));
   items.forEach(n=>{ if(!n.key) n.key=`${n.type}:${n.ref}:${n.t}`; });
   return items.sort((a,b)=>b.t-a.t);
 }
@@ -2158,10 +2159,10 @@ function markNotifRead(key){
   if(!key) return; const list=store.get(readKey(),[]).filter(k=>k!==key); list.push(key);
   store.set(readKey(), list.slice(-300));
 }
-function isUnread(n, seen, rs){ return n.t>seen && !rs.has(n.key); }
-function unseenCount(){ const seen=store.get(seenKey(),0), rs=readSet(); return notifItems().filter(n=>isUnread(n,seen,rs)).length; }
+function isUnread(n, seen, rs){ return n.srv ? !n.read : n.t>seen && !rs.has(n.key); }
+function unseenCount(){ const seen=store.get(seenKey(),0), rs=readSet(); return NS.unread + notifItems().filter(n=>!n.srv && isUnread(n,seen,rs)).length; }
 /* attributes that make a notification row clickable */
-const notifAttrs = n => `role="button" tabindex="0" data-ntype="${esc(n.type)}" data-nref="${esc(n.ref||"")}" data-njob="${esc(n.jobId||"")}" data-nkey="${esc(n.key||"")}"`;
+const notifAttrs = n => `role="button" tabindex="0" data-ntype="${esc(n.type)}" data-nref="${esc(n.ref||"")}" data-njob="${esc(n.jobId||"")}" data-nkey="${esc(n.key||"")}"${n.srv?` data-nid="${esc(n.id)}"`:""}`;
 function flashEl(el){
   if(!el) return; el.scrollIntoView({behavior:"smooth", block:"center"});
   el.classList.remove("p-flash"); void el.offsetWidth; el.classList.add("p-flash");
@@ -2203,12 +2204,14 @@ function openStudentNotif(type, ref){
     if(!card) return gone();
     requestAnimationFrame(()=>flashEl(card));
   } else if(type==="chat") openChatById(ref);
+  else if(type==="job"){ if(JOBS.some(x=>x.id===ref)) openJob(ref); else gone(); }
   else if(type==="shift") setStudentPage("hours");
 }
 function handleNotifActivate(e){
   const r=e.target.closest("[data-ntype]"); if(!r) return;
   if(e.type==="keydown"){ if(e.key!=="Enter" && e.key!==" ") return; e.preventDefault(); }
-  const {ntype, nref, njob, nkey}=r.dataset;
+  const {ntype, nref, njob, nkey, nid}=r.dataset;
+  if(nid){ const n=NS.items.find(x=>x.id===nid); readNotif(nid); if(n){ openNotifLink(n.link); return; } }
   if(r.closest("#stDash")) openStudentNotif(ntype, nref); else openPortalNotif(ntype, nref, njob, nkey);
 }
 document.addEventListener("click", handleNotifActivate);
@@ -2291,9 +2294,11 @@ function renderPortalNotifications(){
   const cnt=t=>items.filter(n=>t==="all"||n.type===t).length;
   el.innerHTML = `<div class="p-head"><div><h2>${L("Notifications","알림")}</h2><p>${L("Updates on applications and your jobs.","지원서와 공고 소식이에요.")}</p></div><button class="btn btn-ghost" id="pMarkRead">${L("Mark all as read","모두 읽음")}</button></div>
     <div class="p-tabs">${[["all","All"],["app","Applications"],["job","Jobs"],["chat","Messages"]].map(([k,l])=>`<button data-tab="${k}" class="${tab===k?"on":""}">${l} (${cnt(k)})</button>`).join("")}</div>
-    <div class="p-card">${shown.length?shown.map(n=>`<div class="p-note p-click ${isUnread(n,seen,rs)?"unread":""}" ${notifAttrs(n)}><span class="tl-ic">${n.icon}</span><div><b>${esc(n.title)}</b><small>${esc(n.text)}</small></div><em>${relTime(n.t)}</em></div>`).join(""):`<div class="empty" style="padding:30px">${L("No notifications.","알림이 없어요.")}</div>`}</div>`;
+    <div class="p-card">${shown.length?shown.map(n=>`<div class="p-note p-click ${isUnread(n,seen,rs)?"unread":""}" ${notifAttrs(n)}><span class="tl-ic">${n.icon}</span><div><b>${esc(n.title)}</b><small>${esc(n.text)}</small></div><em>${relTime(n.t)}</em></div>`).join(""):`<div class="empty" style="padding:30px">${L("No notifications.","알림이 없어요.")}</div>`}</div>
+    ${NS.more?`<div style="text-align:center;margin-top:12px"><button class="btn btn-ghost btn-sm" id="pNotifMore">${L("Load older","이전 알림 더 보기")}</button></div>`:""}`;
   el.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{ el.dataset.tab=b.dataset.tab; renderPortalNotifications(); });
-  $("pMarkRead").onclick=()=>{ store.set(seenKey(),Date.now()); renderPortal(); };
+  $("pMarkRead").onclick=()=>{ store.set(seenKey(),Date.now()); markAllNotifsRead(); };
+  if($("pNotifMore")) $("pNotifMore").onclick=loadMoreNotifs;
 }
 /* ---- P5: "Security" card used by BOTH settings pages (employer portal + student dashboard) ---- */
 function securityCardHTML(){
@@ -2338,7 +2343,7 @@ function renderPortalSettings(D){
   el.innerHTML = `<div class="p-head"><div><h2>${L("Settings","설정")}</h2><p>${L("Manage your account and preferences.","계정과 환경을 관리하세요.")}</p></div></div>
     <div class="p-card p-set"><h3>👤 ${L("Account","계정")}</h3><div class="p-setrow"><span>${L("Login email","로그인 이메일")}</span><b>${esc(email||"—")}</b></div><div class="p-setrow"><span>${L("Member type","회원 유형")}</span><b>Employer</b></div>
       <div class="p-setrow"><span>${L("Company details","기업 정보")}</span><button class="btn btn-ghost btn-sm" id="pSetCo">${L("Edit","수정")}</button></div></div>
-    ${securityCardHTML()}
+    ${securityCardHTML()}${emailNotifCardHTML()}
     <div class="p-card p-set"><h3>🎨 ${L("Appearance","화면")}</h3>
       <div class="p-setrow"><span>${L("Dark mode","다크 모드")}</span><label class="switch"><input type="checkbox" id="pSetDark" ${document.documentElement.dataset.theme==="dark"?"checked":""}><i></i></label></div>
       <div class="p-setrow"><span>${L("Language","언어")}</span><div class="lang"><button data-l="en" class="${lang==="en"?"on":""}">EN</button><button data-l="ko" class="${lang==="ko"?"on":""}">한국어</button></div></div></div>
@@ -2348,7 +2353,7 @@ function renderPortalSettings(D){
   $("pSetDark").onchange=()=>{ $("themeBtn").click(); renderPortal(); };
   el.querySelectorAll("[data-l]").forEach(b=>b.onclick=()=>document.querySelector(`.lang button[data-lang="${b.dataset.l}"]`).click());
   $("pSetDel").onclick=openDeleteAccount;
-  bindSecurityCard(el);
+  bindSecurityCard(el); bindEmailNotifCard(el);
   el.querySelectorAll('a[href="#privacy"],a[href="#terms"]').forEach(a=>a.addEventListener("click",()=>document.body.classList.remove("dash")));
 }
 function filterPortalLists(){
@@ -2617,7 +2622,7 @@ function watchMyApps(){
 
 /* ---- portal shell ---- */
 const ST_PAGES = [["home","🏠","Dashboard","대시보드"],["jobs","🎯","Recommended","추천 일자리"],["apps","📨","My Applications","내 지원"],["saved","★","Saved Jobs","저장한 공고"],
-  ["hours","⏱️","Work Hours","근무 시간"],["messages","💬","Messages","메시지"],["profile","👤","My Profile","내 프로필"],["settings","⚙️","Settings","설정"]];
+  ["hours","⏱️","Work Hours","근무 시간"],["messages","💬","Messages","메시지"],["profile","👤","My Profile","내 프로필"],["notifications","🔔","Notifications","알림"],["settings","⚙️","Settings","설정"]];
 let stPage="home", stBuilt=false;
 function buildStudentDash(){
   if(stBuilt) return; stBuilt=true;
@@ -2715,10 +2720,10 @@ function renderStudentDash(){
   $("sMe").innerHTML = `${stAvatar(pf,"p-av")}<b>${esc(pf.name||"")}</b>`;
   $("sTheme").textContent=document.documentElement.dataset.theme==="dark"?"☀️":"🌙";
   document.querySelectorAll("#sNav [data-s]").forEach(b=>{ const p=ST_PAGES.find(x=>x[0]===b.dataset.s); if(p&&b.childNodes[1]) b.childNodes[1].textContent=L(p[2],p[3]); });
-  $("sc_saved").textContent=D.savedJobs.length||""; $("sc_messages").textContent=D.unread||"";
+  $("sc_saved").textContent=D.savedJobs.length||""; $("sc_messages").textContent=D.unread||""; $("sc_notifications").textContent=NS.unread||"";
   $("sc_apps").textContent=D.apps.filter(a=>a.status==="interview"||a.status==="contacted").length||"";
   const el=$("sp_"+stPage); if(!el) return;
-  ({home:stHome,jobs:stJobs,apps:stApps,saved:stSaved,hours:stHours,messages:stMessages,profile:stProfile,settings:stSettings})[stPage](el,D);
+  ({home:stHome,jobs:stJobs,apps:stApps,saved:stSaved,hours:stHours,messages:stMessages,profile:stProfile,notifications:stNotifications,settings:stSettings})[stPage](el,D);
   animateNumbers(el);
 }
 function stHome(el,D){
@@ -2832,7 +2837,7 @@ function stSettings(el){
   const email=(backend.user&&backend.user.email)||(account.profile||{}).email||"";
   el.innerHTML = `<div class="p-head"><div><h2>⚙️ ${L("Settings","설정")}</h2></div></div>
     <div class="p-card p-set"><h3>👤 ${L("Account","계정")}</h3><div class="p-setrow"><span>${L("Login email","로그인 이메일")}</span><b>${esc(email||"—")}</b></div><div class="p-setrow"><span>${L("Member type","회원 유형")}</span><b>${L("Student","학생")}</b></div></div>
-    ${securityCardHTML()}
+    ${securityCardHTML()}${emailNotifCardHTML()}
     <div class="p-card p-set"><h3>🎨 ${L("Appearance","화면")}</h3>
       <div class="p-setrow"><span>${L("Dark mode","다크 모드")}</span><label class="switch"><input type="checkbox" id="sSetDark" ${document.documentElement.dataset.theme==="dark"?"checked":""}><i></i></label></div>
       <div class="p-setrow"><span>${L("Language","언어")}</span><div class="lang"><button data-l="en" class="${lang==="en"?"on":""}">EN</button><button data-l="ko" class="${lang==="ko"?"on":""}">한국어</button></div></div></div>
@@ -2842,7 +2847,7 @@ function stSettings(el){
   el.querySelectorAll("[data-l]").forEach(b=>b.onclick=()=>{ document.querySelector(`.lang button[data-lang="${b.dataset.l}"]`).click(); renderStudentDash(); });
   el.querySelectorAll('a[href="#privacy"],a[href="#terms"]').forEach(a=>a.addEventListener("click",()=>closeStudentDash()));
   $("sSetDel").onclick=openDeleteAccount;
-  bindSecurityCard(el);
+  bindSecurityCard(el); bindEmailNotifCard(el);
 }
 
 /* ---- hooks ---- */
@@ -2862,6 +2867,154 @@ const _renderAllSD = renderAll;
 renderAll = function(){ _renderAllSD(); if(document.body.classList.contains("sdash")) renderStudentDash(); };
 const _showViewSD = showView;
 showView = function(v){ if(document.body.classList.contains("sdash")) closeStudentDash(); _showViewSD(v); };
+
+/* ==========================================================================
+   P8: NOTIFICATIONS FROM THE SERVER — same list and read state on every device,
+   new ones arrive live (socket), optional emails (Settings → Email notifications)
+   ========================================================================== */
+const nApi = () => window.wahNotifications;
+const N_ICON = {application:"👥", status:"📨", message:"💬", job:"✅", system:"ℹ️"};
+// server notification → the item shape the lists already use
+function srvItem(n){
+  const lk=n.link||{}, type=lk.kind==="chat"?"chat":lk.kind==="job"?"job":"app";
+  const ref = type==="app" ? (isStudent() ? (lk.jobId||"") : (lk.id||"")) : (lk.id||"");
+  return {srv:true, id:n.id, read:!!n.read, t:new Date(n.createdAt).getTime()||0, type, ref, jobId:lk.jobId||"", key:"srv:"+n.id,
+          icon:N_ICON[n.type]||"🔔", title:n.title, text:(n.body||"")+(n.count>1?` · ${L(`${n.count} messages`,`메시지 ${n.count}개`)}`:"")};
+}
+function refreshNotifUI(){
+  if(portalBuilt && document.body.classList.contains("dash")) renderPortal();
+  if(document.body.classList.contains("sdash")) renderStudentDash();
+}
+async function loadNotifs(){
+  const uid = backend.mode==="firebase" && nApi() ? backend.uid : null;
+  if(!uid){ Object.assign(NS,{items:[],unread:0,more:false,uid:null,settings:null}); return; }
+  try{
+    const d=await nApi().list(null, 50);
+    if(backend.uid!==uid) return;                     // logged out / switched account meanwhile
+    if(NS.uid!==uid) NS.settings=null;                // other account → its own email settings
+    Object.assign(NS,{items:d.items, unread:d.unreadCount, more:!!d.more, uid});
+  }catch(e){ console.warn("notifications", e); }
+  refreshNotifUI();
+}
+async function loadMoreNotifs(){
+  const last=NS.items[NS.items.length-1]; if(!last) return;
+  try{
+    const d=await nApi().list(last.createdAt, 50), have=new Set(NS.items.map(n=>n.id));
+    NS.items.push(...d.items.filter(n=>!have.has(n.id))); NS.more=!!d.more; refreshNotifUI();
+  }catch(e){ toast(L("Couldn't load more notifications.","알림을 더 불러오지 못했어요.")); }
+}
+function readNotif(id){
+  const n=NS.items.find(x=>x.id===id);
+  if(n && !n.read){ n.read=true; NS.unread=Math.max(0,NS.unread-1); refreshNotifUI(); }
+  if(nApi()) nApi().markRead([id]).then(d=>{ NS.unread=d.unreadCount; refreshNotifUI(); }).catch(e=>console.warn("mark read",e));
+}
+async function markAllNotifsRead(){
+  NS.items.forEach(n=>n.read=true); NS.unread=0; refreshNotifUI();
+  try{ await nApi().markRead("all"); }catch(e){ toast(L("Couldn't mark them as read — try again.","읽음 처리하지 못했어요.")); loadNotifs(); }
+}
+// live: a new (or grouped, updated) notification / some were read on another device / reconnected
+let notifWired=false;
+function initNotifs(){
+  if(notifWired || !nApi()) return; notifWired=true;
+  nApi().onNew(n=>{
+    if(!backend.uid) return;
+    const i=NS.items.findIndex(x=>x.id===n.id), wasUnread=i>-1 && !NS.items[i].read;
+    if(i>-1) NS.items.splice(i,1);
+    NS.items.unshift(n);
+    if(!n.read && !wasUnread) NS.unread++;
+    const watching = n.link && n.link.kind==="chat" && chat.open && chat.open.id===n.link.chatId;
+    if(!watching) toast("🔔 "+n.title);
+    refreshNotifUI();
+  });
+  nApi().onRead(d=>{
+    NS.items.forEach(n=>{ if(d.all || (d.ids&&d.ids.includes(n.id)) || (d.chatId && n.link && n.link.chatId===d.chatId)) n.read=true; });
+    NS.unread=d.unreadCount; refreshNotifUI();
+  });
+  nApi().onSync(()=>{ if(backend.uid) loadNotifs(); });
+}
+
+/* ---- open what a notification points to: {kind:"application"|"chat"|"job", id, jobId} ---- */
+async function waitFor(fn, ms=6000){
+  const t0=Date.now();
+  for(;;){ let v; try{ v=fn(); }catch{ v=null; } if(v || Date.now()-t0>ms) return v; await new Promise(r=>setTimeout(r,200)); }
+}
+async function openNotifLink(lk){
+  if(!lk || !lk.kind || !lk.id) return;
+  const id=String(lk.id);
+  if(isStudent()){
+    if(lk.kind==="job"){ const j=await waitFor(()=>JOBS.find(x=>x.id===id)); return j ? openJob(j.id) : gone(); }
+    if(lk.kind==="chat"){ const c=await waitFor(()=>chat.list.find(x=>x.id===id)); return c ? openChatById(id) : gone(); }
+    openStudentDash("apps");                          // application → My Applications, highlighted
+    const jobId = lk.jobId || await waitFor(()=>{ const a=myApps.find(x=>String(x.id)===id); return a && String(a.jobId); });
+    const card = jobId && await waitFor(()=>document.querySelector(`#sp_apps .st-app[data-jid="${CSS.escape(String(jobId))}"]`));
+    return card ? flashEl(card) : gone();
+  }
+  if(account && account.role==="employer"){
+    if(!document.body.classList.contains("dash")) showView("dashboard");
+    if(lk.kind==="application"){ await waitFor(()=>applications.find(a=>String(a.id)===id)); return openPortalNotif("app", id, lk.jobId||""); }
+    if(lk.kind==="job"){ await waitFor(()=>myPosting()); return openPortalNotif("job", id); }
+    if(lk.kind==="chat"){ await waitFor(()=>chat.list.find(x=>x.id===id)); return openPortalNotif("chat", id); }
+  }
+}
+
+/* ---- ?open=application:<id> | chat:<id> | job:<id>  (the button in notification emails) ---- */
+let pendingOpen = (()=>{
+  const m=/^(application|chat|job):([A-Za-z0-9_\-]{1,128})$/.exec(new URLSearchParams(location.search).get("open")||"");
+  return m ? {kind:m[1], id:m[2]} : null;
+})();
+function cleanOpenParam(){
+  const p=new URLSearchParams(location.search); if(!p.has("open")) return;
+  p.delete("open"); const q=p.toString();
+  history.replaceState(null,"",location.pathname+(q?"?"+q:"")+location.hash);
+}
+if(!pendingOpen) cleanOpenParam();                    // a broken ?open=… is just removed
+// runs after every login / logout (see onAuthStateChanged)
+function afterAuthP8(){
+  initNotifs(); loadNotifs();
+  if(!pendingOpen) return;
+  if(!backend.uid){ toast(L("Please log in to see this.","로그인 후 볼 수 있어요.")); openAuth("login"); return; }
+  if(!account || account.pending) return;             // still finishing sign-up
+  const p=pendingOpen; pendingOpen=null;
+  setTimeout(()=>{ openNotifLink(p); cleanOpenParam(); }, 0);
+}
+
+/* ---- student dashboard: 🔔 Notifications page ---- */
+function stNotifications(el){
+  const items=NS.items.map(srvItem);
+  el.innerHTML = `<div class="p-head"><div><h2>🔔 ${L("Notifications","알림")}</h2><p>${L("Application updates and new messages — the same on all your devices.","지원 상태와 새 메시지 소식이에요. 모든 기기에서 똑같이 보여요.")}</p></div>
+      <button class="btn btn-ghost" id="sMarkRead" ${NS.unread?"":"disabled"}>${L("Mark all as read","모두 읽음")}</button></div>
+    <div class="p-card">${items.length?items.map(n=>`<div class="p-note p-click ${n.read?"":"unread"}" ${notifAttrs(n)}><span class="tl-ic">${n.icon}</span><div><b>${esc(n.title)}</b><small>${esc(n.text)}</small></div><em>${relTime(n.t)}</em></div>`).join("")
+      :`<div class="empty" style="padding:30px">${L("No notifications yet. You'll see application updates and messages here.","아직 알림이 없어요. 지원 상태와 메시지가 여기 표시돼요.")}</div>`}</div>
+    ${NS.more?`<div style="text-align:center;margin-top:12px"><button class="btn btn-ghost btn-sm" id="sNotifMore">${L("Load older","이전 알림 더 보기")}</button></div>`:""}`;
+  $("sMarkRead").onclick=markAllNotifsRead;
+  if($("sNotifMore")) $("sNotifMore").onclick=loadMoreNotifs;
+}
+
+/* ---- Settings (both portals): email notification switches ---- */
+function emailNotifCardHTML(){
+  const rows = isStudent()
+    ? [["status",L("My application status changes","지원 상태가 바뀔 때")],["message",L("New messages (if still unread after 10 minutes)","새 메시지 (10분 동안 안 읽으면)")]]
+    : [["application",L("New applications","새 지원서")],["message",L("New messages (if still unread after 10 minutes)","새 메시지 (10분 동안 안 읽으면)")]];
+  return `<div class="p-card p-set" data-nset><h3>📧 ${L("Email notifications","이메일 알림")}</h3>
+    ${rows.map(([k,l])=>`<div class="p-setrow"><span>${l}</span><label class="switch"><input type="checkbox" data-nk="${k}" ${NS.settings?(NS.settings[k]!==false?"checked":""):"disabled"}><i></i></label></div>`).join("")}
+    <p class="fine" data-nmsg style="margin:6px 0 0;color:var(--muted)">${L("You always see notifications here on the site. Emails go to your confirmed email address.","사이트 알림은 항상 보여요. 이메일은 인증된 주소로 보내요.")}</p></div>`;
+}
+async function bindEmailNotifCard(el){
+  const card=el.querySelector("[data-nset]"); if(!card) return;
+  const boxes=[...card.querySelectorAll("[data-nk]")];
+  if(!nApi()){ boxes.forEach(b=>b.disabled=true); return; }
+  if(!NS.settings){
+    try{ NS.settings=await nApi().settings(); }
+    catch{ card.querySelector("[data-nmsg]").textContent=L("Couldn't load your email settings.","이메일 설정을 불러오지 못했어요."); return; }
+    boxes.forEach(b=>{ b.checked=NS.settings[b.dataset.nk]!==false; b.disabled=false; });
+  }
+  boxes.forEach(b=>b.onchange=async()=>{
+    b.disabled=true;
+    try{ NS.settings=await nApi().saveSettings({[b.dataset.nk]:b.checked}); toast(L("Email settings saved","이메일 설정이 저장됐어요")); }
+    catch(e){ b.checked=!b.checked; toast(e.fromServer?e.message:L("Couldn't save — try again.","저장하지 못했어요.")); }
+    finally{ b.disabled=false; }
+  });
+}
 const _saveAccountSD = saveAccount;
 saveAccount = async function(){ const r=await _saveAccountSD(); if(document.body.classList.contains("sdash")) setTimeout(renderStudentDash,0); return r; };
 const _closeModalSD = closeModal;

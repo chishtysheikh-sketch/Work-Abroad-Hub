@@ -36,8 +36,7 @@ const escHtml = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&
 
 // Branded email: title, a few lines of text, one big button, plain-text fallback.
 // → { html, text } ready for sendMail
-export function emailTemplate({ title, lines = [], button, url, note }) {
-  const footer = "If you didn't ask for this, ignore this email.";
+export function emailTemplate({ title, lines = [], button, url, note, footer = "If you didn't ask for this, ignore this email." }) {
   const html = `<!doctype html><html><body style="margin:0;background:#f4f5f9;font-family:Arial,Helvetica,sans-serif;color:#14213d">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:28px 12px"><tr><td align="center">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden">

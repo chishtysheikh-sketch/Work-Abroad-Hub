@@ -122,5 +122,5 @@ export async function writeDoc({ op, path, data, merge }, uid, ctx = {}) {
     if (Object.keys(sets).length) await FbDoc.updateOne({ col, docId: id }, { $set: sets });
   } else await FbDoc.updateOne({ col, docId: id }, { $set: { data: next } });
 
-  return { id, col, data: next };
+  return { id, col, data: next, old, kind };     // old + kind: P8 notifications need them
 }

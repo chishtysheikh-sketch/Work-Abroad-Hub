@@ -32,6 +32,11 @@ const userSchema = new Schema({
   hasPassword:       { type: Boolean, default: true },  // false = Google-only account (P6)
   lastLoginAt:       Date,                              // for "set a password" on Google-only accounts
   googleSub:         { type: String, unique: true, sparse: true },   // Google's id for this person (P6)
+  notifyEmail: {                                        // P8: which notifications also come by email
+    application: { type: Boolean, default: true },
+    status:      { type: Boolean, default: true },
+    message:     { type: Boolean, default: true },
+  },
 }, { timestamps: true });
 
 // browser e pathanor age gopon jinish shoriye dey

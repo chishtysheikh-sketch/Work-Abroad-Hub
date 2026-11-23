@@ -18,6 +18,8 @@ import { OAuth2Client } from "google-auth-library";
 import { readDoc, runQuery, writeDoc, FbError } from "../fb/core.js";
 import { notify } from "../sockets/fbLive.js";
 import { deleteImagesOf } from "../utils/images.js";
+import { notifyAfterWrite } from "../services/notify.js";
+import Notification from "../models/Notification.js";
 
 const router = Router();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -300,6 +302,7 @@ router.delete("/auth/me", async (req, res) => {
   if (!uid) return fail(res, 401, "auth/requires-recent-login", "Please log in.");
   await FbDoc.deleteMany({ col: { $in: ["users", "postings"] }, docId: uid });
   await deleteImagesOf(uid);               // P7: their photos / logos in GridFS
+  await Notification.deleteMany({ user: uid });   // P8
   await User.deleteOne({ _id: uid });
   forgetSession(uid);
   clearAuthCookie(res);
@@ -333,6 +336,7 @@ router.post("/write", writeLimiter, async (req, res) => {
   }
 
   notify(out.col, out.id);
+  notifyAfterWrite(out, uid);              // P8: runs in the background; errors are logged, never break the save
   res.json({ id: out.id });
 });
 
