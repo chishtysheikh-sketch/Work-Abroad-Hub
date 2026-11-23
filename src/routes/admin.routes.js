@@ -131,6 +131,10 @@ router.post("/users/:id/block", async (req, res) => {
   forgetSession(id);                       // no 30-second cache: the next request is already refused
   if (blocked) kickUser(id);               // close their live connections (chat / notifications)
   await log(req, blocked ? "user.block" : "user.unblock", "user:" + id, { email: u.email, reason });
+  // employers: their open jobs go off the board with the block, and come back with the unblock
+  const jobs = await blockJobs(id, blocked);
+  if (jobs.length) await log(req, blocked ? "jobs.block-hide" : "jobs.block-restore", "user:" + id,
+    { email: u.email, count: jobs.length, jobs: jobs.map(j => `${j.id} ${j.title}`).join(" | ") });
 
   sendMail({ to: u.email, ...(blocked
     ? { subject: "Your account has been blocked", ...emailTemplate({
@@ -143,8 +147,30 @@ router.post("/users/:id/block", async (req, res) => {
         lines: ["Our team unblocked your Work Abroad Hub account. You can log in again."],
         button: "Open Work Abroad Hub", url: `${env.APP_URL}/`, footer: "Work Abroad Hub · safety team" }) }) });
 
-  res.json({ ok: true, blocked });
+  res.json({ ok: true, blocked, [blocked ? "jobsHidden" : "jobsRestored"]: jobs.length });
 });
+
+// Block → hide every OPEN job (hiddenByAdmin, reason "account blocked", marked byBlock).
+// Unblock → bring back ONLY the jobs marked byBlock; jobs an admin hid on purpose stay hidden.
+// Runs after the user is blocked, so the employer can't save their postings in between.
+export const BLOCK_REASON = "account blocked";
+async function blockJobs(uid, blocked) {
+  const doc = await FbDoc.findOne({ col: "postings", docId: uid }).select("data.jobs").lean();
+  const all = (Array.isArray(doc?.data?.jobs) ? doc.data.jobs : []).filter(j => j && j.id != null);
+  const hit = blocked ? all.filter(j => j.status === "open" && !j.hiddenByAdmin)
+                      : all.filter(j => j.hiddenByAdmin && j.hiddenInfo?.byBlock === true);
+  if (!hit.length) return [];
+  const J = "data.jobs.$[j].";
+  const [update, filter] = blocked
+    ? [{ $set: { [J + "status"]: "closed", [J + "hiddenByAdmin"]: true, updatedAt: new Date(),
+                 [J + "hiddenInfo"]: { reason: BLOCK_REASON, at: Date.now(), prevStatus: "open", byBlock: true } } },
+       { "j.status": "open", "j.hiddenByAdmin": { $ne: true } }]
+    : [{ $set: { [J + "status"]: "open", updatedAt: new Date() }, $unset: { [J + "hiddenByAdmin"]: "", [J + "hiddenInfo"]: "" } },
+       { "j.hiddenByAdmin": true, "j.hiddenInfo.byBlock": true }];
+  await FbDoc.collection.updateOne({ col: "postings", docId: uid }, update, { arrayFilters: [filter] });
+  notify("postings", uid);                 // job board updates live
+  return hit.map(j => ({ id: String(j.id), title: String(j.title || "").slice(0, 80) }));
+}
 
 // ---------- employers ----------
 router.get("/employers", async (req, res) => {

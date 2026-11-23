@@ -16,7 +16,8 @@
   const won = n => "₩" + num(n);
   const STATUS = { new: "New", contacted: "Contacted", interview: "Interview", hired: "Hired", rejected: "Not selected" };
   const ACTIONS = { "user.block": "Blocked user", "user.unblock": "Unblocked user", "employer.verify": "Verified employer",
-    "employer.unverify": "Removed verification", "job.hide": "Hid job", "job.unhide": "Un-hid job", "report.resolve": "Resolved report" };
+    "employer.unverify": "Removed verification", "job.hide": "Hid job", "job.unhide": "Un-hid job", "report.resolve": "Resolved report",
+    "jobs.block-hide": "Hid jobs (account blocked)", "jobs.block-restore": "Restored jobs (account unblocked)" };
 
   function toast(msg, bad) {
     const t = $("toast"); t.textContent = msg; t.className = "toast show" + (bad ? " bad" : "");
@@ -238,12 +239,12 @@
     };
     if (a === "retry" || a === "refresh") return render();
     if (a === "block") {
-      const r = await ask({ title: "Block this user?", text: `${D.email} will be logged out on every device right away and can't log in. They get an email with your reason.`,
+      const r = await ask({ title: "Block this user?", text: `${D.email} will be logged out on every device right away and can't log in. They get an email with your reason. If they're an employer, all their open jobs are hidden too.`,
         label: "Reason (sent to the user)", placeholder: "e.g. Fake job posts asking for a deposit", required: true, ok: "Block", danger: true });
-      if (r) run(() => api(`/admin/users/${D.id}/block`, { blocked: true, reason: r.reason }), "User blocked and logged out");
+      if (r) run(async () => { const d = await api(`/admin/users/${D.id}/block`, { blocked: true, reason: r.reason }); if (d.jobsHidden) setTimeout(() => toast(`${d.jobsHidden} open job(s) hidden`), 3100); }, "User blocked and logged out");
     } else if (a === "unblock") {
-      const r = await ask({ title: "Unblock this user?", text: `${D.email} can log in again. They get an email.`, ok: "Unblock" });
-      if (r) run(() => api(`/admin/users/${D.id}/block`, { blocked: false }), "User unblocked");
+      const r = await ask({ title: "Unblock this user?", text: `${D.email} can log in again. They get an email. Jobs hidden by the block come back; jobs you hid on purpose stay hidden.`, ok: "Unblock" });
+      if (r) run(async () => { const d = await api(`/admin/users/${D.id}/block`, { blocked: false }); if (d.jobsRestored) setTimeout(() => toast(`${d.jobsRestored} job(s) back on the board`), 3100); }, "User unblocked");
     } else if (a === "verify" || a === "unverify") {
       const on = a === "verify";
       const r = await ask({ title: on ? "Verify this employer?" : "Remove verification?", ok: on ? "✓ Verify" : "Remove",
