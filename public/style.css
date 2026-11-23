@@ -1212,3 +1212,25 @@ html:not([data-theme="dark"]) .lp-logo .logo-mark{color:#059669}
 .p-pwerr{min-height:1em;font-size:13px;font-weight:600;color:#dc2626}
 .p-pwerr:empty{display:none}
 .p-pwbtns{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+
+/* ===== P9: verified employer badge · report a job · admin link · hidden jobs ===== */
+.verified-badge{display:inline-flex;align-items:center;gap:3px;margin-left:4px;padding:1px 7px;border-radius:999px;background:var(--teal-soft);color:var(--teal);font-size:11px;font-weight:800;letter-spacing:.01em;white-space:nowrap;vertical-align:1px}
+.report-job{margin-top:18px;padding-top:12px;border-top:1px dashed var(--line);font-size:13px}
+.report-job .rp-link{color:var(--muted);font-weight:600;font-size:13px}
+.report-job .rp-link:hover{color:#c0392b}
+.rp-form{margin-top:10px;display:grid;gap:8px}
+.rp-form label{font-weight:700;color:var(--ink-2)}
+.rp-form textarea{width:100%;font:inherit;font-size:15px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);resize:vertical}
+.rp-row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.rp-row span{display:flex;gap:12px;align-items:center}
+.rp-row small{color:var(--muted)}
+.rp-msg{font-size:13px;min-height:0}
+.rp-msg.bad{color:#c0392b;font-weight:600}
+.rp-done{color:var(--teal);font-weight:700}
+.menu .menu-link{display:block;padding:10px 12px;border-radius:10px;font-weight:700;font-size:14px;color:var(--ink)}
+.menu .menu-link:hover{background:#f4f5f9}
+[data-theme="dark"] .menu .menu-link:hover{background:var(--line)}
+.status.hidden-admin{background:#fdecea;color:#b42318}
+[data-theme="dark"] .status.hidden-admin{background:#3a1717;color:#fca5a5}
+.my-job .hidden-why{flex-basis:100%;color:#b42318;font-size:12px}
+.my-job:has(.hidden-why){flex-wrap:wrap}

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Admin · Work Abroad Hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="admin.css?v=1795700000">
+<script src="admin.js?v=1795700000" defer></script>
+</head>
+<body>
+<header class="top">
+  <a class="logo" href="/"><span class="logo-mark">W</span><span>Work Abroad Hub</span></a>
+  <span class="pill">🛡️ Admin</span>
+  <span class="who" id="who"></span>
+  <button class="icon" id="themeBtn" type="button" aria-label="Dark mode">🌙</button>
+  <a class="back" href="/">← Back to site</a>
+</header>
+
+<nav class="tabs" id="tabs" hidden aria-label="Admin sections">
+  <button type="button" data-tab="dashboard">📊 Dashboard</button>
+  <button type="button" data-tab="users">👥 Users</button>
+  <button type="button" data-tab="employers">🏢 Employers <b class="cnt" id="cntEmployers"></b></button>
+  <button type="button" data-tab="jobs">📋 Jobs</button>
+  <button type="button" data-tab="reports">🚩 Reports <b class="cnt" id="cntReports"></b></button>
+  <button type="button" data-tab="log">📜 Log</button>
+</nav>
+
+<main id="main" aria-live="polite">
+  <div class="loading">Loading…</div>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlgForm">
+    <h3 id="dlgTitle"></h3>
+    <p id="dlgText"></p>
+    <label id="dlgLabel" for="dlgInput"></label>
+    <textarea id="dlgInput" maxlength="500" rows="3"></textarea>
+    <small id="dlgErr" class="err"></small>
+    <div class="dlg-btns">
+      <button type="button" class="btn ghost" id="dlgCancel">Cancel</button>
+      <button type="submit" class="btn" id="dlgOk">OK</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status"></div>
+</body>
+</html>

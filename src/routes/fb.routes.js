@@ -25,7 +25,8 @@ const router = Router();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const fail = (res, status, code, error, extra) => res.status(status).json({ code, error, ...extra });
-const shape = u => ({ uid: String(u._id), email: u.email, displayName: u.name || "", emailVerified: !!u.emailVerified });
+const shape = u => ({ uid: String(u._id), email: u.email, displayName: u.name || "", emailVerified: !!u.emailVerified,
+                     isAdmin: u.isAdmin === true });   // P9: only shows/hides the "🛡️ Admin" link; the API checks the DB itself
 
 // who is calling? (null = logged out, logged out everywhere, blocked or deleted)
 async function uidOf(req) {

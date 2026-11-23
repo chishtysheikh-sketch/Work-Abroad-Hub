@@ -12,6 +12,8 @@ import chatRoutes from "./routes/chats.routes.js";
 import fbRoutes, { fbErrors } from "./routes/fb.routes.js";
 import fileRoutes from "./routes/files.routes.js";
 import notificationRoutes from "./routes/notifications.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
+import reportRoutes from "./routes/reports.routes.js";
 import { errorHandler, notFound } from "./middleware/error.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -74,6 +76,8 @@ app.use("/api/jobs", jobRoutes);
 app.use("/api/applications", applicationRoutes);
 app.use("/api/chats", chatRoutes);
 app.use("/api/notifications", notificationRoutes);   // P8
+app.use("/api/reports", reportRoutes);               // P9: "🚩 Report" from users
+app.use("/api/admin", adminRoutes);                  // P9: admin panel (requireAdmin inside)
 app.use("/api", notFound);
 
 app.use(express.static(path.join(__dirname, "../public")));

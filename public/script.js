@@ -121,7 +121,7 @@ function rebuildJobs(){
       live.push({id:String(j.id),title:String(j.title||""),ko:String(j.ko||j.title||""),co,city:String(j.city||""),area:String(j.area||""),
         cat:CATS[j.cat]?j.cat:"office",pay:Number(j.pay)||0,payType:PAY_TYPES[j.payType]?j.payType:"hourly",hours:String(j.hours||""),
         lvl:[0,1,3,5].includes(Number(j.lvl))?Number(j.lvl):3,flags:(Array.isArray(j.flags)?j.flags:[]).filter(f=>FLAGS.includes(f)),
-        days,desc:String(j.desc||""),deadline:j.deadline||"",live:true,lat:j.lat==null||j.lat===""?null:+j.lat,lng:j.lng==null||j.lng===""?null:+j.lng,owner:p.uid,phone:(p.company&&p.company.phone)||"",email:(p.company&&p.company.email)||""});
+        days,desc:String(j.desc||""),deadline:j.deadline||"",live:true,lat:j.lat==null||j.lat===""?null:+j.lat,lng:j.lng==null||j.lng===""?null:+j.lng,owner:p.uid,phone:(p.company&&p.company.phone)||"",email:(p.company&&p.company.email)||"",verified:!!(p.company&&p.company.verified===true)});
     });
   });
   JOBS = [...live,...samples];
@@ -135,7 +135,7 @@ async function initBackend(){
   if(!configReady()) return startLocal("Firebase isn't set up yet (fill in firebase-config.js), so accounts and jobs are saved on this device only.");
   try{
     const base = `https://www.gstatic.com/firebasejs/${FB_VERSION}/`;
-    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1795600000"),import("./wah-fb.js?v=1795600000"),import("./wah-fb.js?v=1795600000")]);
+    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1795700000"),import("./wah-fb.js?v=1795700000"),import("./wah-fb.js?v=1795700000")]);
     const app = appMod.initializeApp(firebaseConfig);
     backend.fb = {...authMod, ...fsMod};
     backend.auth = authMod.getAuth(app);
@@ -355,6 +355,8 @@ function payHtml(j){
   const t = PAY_TYPES[j.payType];
   return `<span class="pay-type" style="color:${t.color}">${L(t.en,t.ko)}</span>${won(j.pay)}`;
 }
+// P9: an admin checked this employer's business → "✓ Verified employer"
+const verBadge = j => j && j.verified ? ` <span class="verified-badge" title="${L("Our team checked this employer's business registration.","운영팀이 사업자 정보를 확인한 기업이에요.")}">✓ ${L("Verified employer","인증 기업")}</span>` : "";
 const applied = id => !!(account && account.role==="student" && Array.isArray(account.applied) && account.applied.includes(id));
 function jobCard(j){
   const c = CATS[j.cat], on = saved.includes(j.id);
@@ -363,7 +365,7 @@ function jobCard(j){
     <button class="save ${on?"on":""}" data-save="${esc(j.id)}" aria-label="Save job">${bookmark(on)}</button>
     <div class="job-top">
       <div class="logo-sq" style="background:${c.color}">${esc(initials(j.co))}</div>
-      <div style="padding-right:${j.live?70:30}px"><h3>${esc(lang==="ko"?j.ko:j.title)}</h3><div class="co">${esc(j.co)} · ${esc(j.city)}${j.city!=="Remote"&&j.area?", "+esc(j.area):""}</div></div>
+      <div style="padding-right:${j.live?70:30}px"><h3>${esc(lang==="ko"?j.ko:j.title)}</h3><div class="co">${esc(j.co)}${verBadge(j)} · ${esc(j.city)}${j.city!=="Remote"&&j.area?", "+esc(j.area):""}</div></div>
     </div>
     <div class="meta">
       ${applied(j.id)?`<span class="tag applied-tag">${L("Applied ✓","지원 완료 ✓")}</span>`:""}
@@ -485,7 +487,7 @@ function openJob(id){
   }
   openModal(`
     <div class="m-head"><div class="logo-sq" style="background:${c.color}">${esc(initials(j.co))}</div>
-      <div><h3>${esc(ko?j.ko:j.title)}</h3><div class="co" style="color:var(--muted)">${esc(j.co)} · ${esc(j.city)}${j.city!=="Remote"&&j.area?", "+esc(j.area):""}</div></div></div>
+      <div><h3>${esc(ko?j.ko:j.title)}</h3><div class="co" style="color:var(--muted)">${esc(j.co)}${verBadge(j)} · ${esc(j.city)}${j.city!=="Remote"&&j.area?", "+esc(j.area):""}</div></div></div>
     <div class="meta"><span class="tag t-blue">${lvlLabel(j.lvl)}</span>${j.flags.map(f=>`<span class="tag">${flagLabel(f)}</span>`).join("")}${j.sample?`<span class="tag">${L("Sample listing","예시 공고")}</span>`:`<span class="tag t-brand">${L("Posted by employer","기업 등록 공고")}</span>`}</div>
     <div class="m-grid">
       <div><small style="color:${t.color}">${L(t.en,t.ko)}</small><b>${won(j.pay)}</b></div>
@@ -501,8 +503,10 @@ function openJob(id){
     </ul>
     ${jobMapHtml(j)}
     ${j.live&&(j.email||j.phone)?`<h4>${L("Employer contact","담당자 연락처")}</h4><p style="color:var(--ink-2)">${esc(j.email)}${j.email&&j.phone?" · ":""}${esc(j.phone)}</p>`:""}
-    ${applyBlock}`);
+    ${applyBlock}
+    ${reportJobHtml(j)}`);
   initJobMap(j);
+  bindReportJob(j);
   const ms=$("mSave"); if(ms) ms.onclick = ()=>{toggleSave(j.id);ms.textContent=saved.includes(j.id)?L("Saved ★","저장됨 ★"):L("Save job","저장하기")};
   const ml=$("mLogin"); if(ml) ml.onclick = ()=>openAuth("login");
   const af=$("applyForm"); if(af) af.onsubmit = async e=>{
@@ -518,6 +522,47 @@ function openJob(id){
         : L("This is a sample listing, so nothing was sent. For real jobs: get the contract, visit your international office, then apply for your permit on HiKorea.","예시 공고라 실제로 전송되지 않았어요. 실제 일자리라면 계약서 → 국제처 → 하이코리아 허가 신청 순서로 진행하세요.")}</p>
       <a href="#guide" class="btn btn-primary" id="toGuide">${L("See the permit guide","허가 가이드 보기")}</a></div>`);
     $("toGuide").onclick=closeModal;
+  };
+}
+
+/* ---------- P9: "🚩 Report this job" (inside the job details) ---------- */
+function reportJobHtml(j){
+  if(!j.live || backend.mode!=="firebase" || (backend.uid && j.owner===backend.uid)) return "";
+  return `<div class="report-job" id="rpBox"><button type="button" class="link-btn rp-link" id="rpOpen">🚩 ${L("Report this job","이 공고 신고하기")}</button>
+    <form id="rpForm" class="rp-form" hidden>
+      <label for="rpReason">${L("What's wrong with this job? (e.g. fake, unsafe, illegal pay, asks for money)","어떤 문제가 있나요? (예: 허위, 위험, 불법 급여, 돈 요구)")}</label>
+      <textarea id="rpReason" maxlength="500" rows="3" required placeholder="${L("Tell our team what you noticed…","운영팀에 알려 주세요…")}"></textarea>
+      <div class="rp-row"><small id="rpCount">0/500</small><span><button type="button" class="link-btn" id="rpCancel">${L("Cancel","취소")}</button>
+        <button type="submit" class="btn btn-ghost btn-sm" id="rpSend">${L("Send report","신고 보내기")}</button></span></div>
+      <p class="rp-msg" id="rpMsg" role="status"></p>
+    </form></div>`;
+}
+function bindReportJob(j){
+  const box=$("rpBox"); if(!box) return;
+  const form=$("rpForm"), ta=$("rpReason"), msg=$("rpMsg");
+  $("rpOpen").onclick=()=>{
+    if(!(account && account.loggedIn)){ toast(L("Please log in to report a job.","신고하려면 로그인해 주세요.")); openAuth("login"); return; }
+    form.hidden=!form.hidden; if(!form.hidden) ta.focus();
+  };
+  $("rpCancel").onclick=()=>{ form.hidden=true; };
+  ta.oninput=()=>{ $("rpCount").textContent=`${ta.value.length}/500`; };
+  form.onsubmit=async e=>{
+    e.preventDefault();
+    const reason=ta.value.trim(); if(!reason){ ta.focus(); return; }
+    $("rpSend").disabled=true; msg.className="rp-msg"; msg.textContent="";
+    let r, d={};
+    try{ r=await fetch("/api/reports",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind:"job",targetId:j.id,ownerUid:j.owner,reason})}); d=await r.json().catch(()=>({})); }
+    catch{ r=null; }
+    $("rpSend").disabled=false;
+    if(r && r.ok){ box.innerHTML=`<p class="rp-done">✓ ${L("Thanks. Our team will review this job.","신고해 주셔서 감사해요. 운영팀이 확인할게요.")}</p>`; return; }
+    const st=r?r.status:0;
+    msg.className="rp-msg bad";
+    msg.textContent = !r ? L("Couldn't send. Check your connection.","보내지 못했어요. 연결을 확인해 주세요.")
+      : st===409 ? L("You already reported this job. Our team will look at it.","이미 신고한 공고예요. 운영팀이 확인할게요.")
+      : st===429 ? L("You can send 10 reports a day. Please try again tomorrow.","신고는 하루 10번까지 가능해요. 내일 다시 시도해 주세요.")
+      : st===403 && d.code==="failed-precondition" ? L("Please verify your email first. Check your inbox (and spam).","먼저 이메일 인증을 해 주세요. 받은편지함(스팸함)을 확인하세요.")
+      : st===401 ? L("Please log in again.","다시 로그인해 주세요.")
+      : (d.error || L("Couldn't send the report.","신고를 보내지 못했어요."));
   };
 }
 
@@ -847,10 +892,12 @@ function renderDashboard(){
     const expired = j.deadline && new Date(j.deadline+"T23:59:59")<new Date();
     return `<div class="my-job"><div class="logo-sq" style="background:${(CATS[j.cat]||CATS.office).color};width:40px;height:40px;font-size:13px">${esc(initials(co.name||"WA"))}</div>
       <div class="info"><h4>${esc(j.title)}</h4><small>${esc(j.city)}${j.area?", "+esc(j.area):""} · <span style="color:${t.color};font-weight:700">${t.en}</span> ${won(j.pay)} · ${esc(j.hours)}${j.deadline?` · ${expired?"expired":"until"} ${esc(j.deadline)}`:""}</small></div>
-      <span class="status ${j.status==="open"&&!expired?"open":"closed"}">${j.status==="open"&&!expired?"Open":"Closed"}</span>
+      ${j.hiddenByAdmin?`<span class="status closed hidden-admin" title="${esc((j.hiddenInfo&&j.hiddenInfo.reason)||"")}">🛡️ ${L("Hidden by admin","관리자가 숨김")}</span>`
+        :`<span class="status ${j.status==="open"&&!expired?"open":"closed"}">${j.status==="open"&&!expired?"Open":"Closed"}</span>`}
       <button class="icon-btn" data-edit="${esc(j.id)}">Edit</button>
-      <button class="icon-btn" data-toggle="${esc(j.id)}">${j.status==="open"?"Close":"Reopen"}</button>
-      <button class="icon-btn del" data-del="${esc(j.id)}">Delete</button></div>`;
+      ${j.hiddenByAdmin?"":`<button class="icon-btn" data-toggle="${esc(j.id)}">${j.status==="open"?"Close":"Reopen"}</button>`}
+      <button class="icon-btn del" data-del="${esc(j.id)}">Delete</button>
+      ${j.hiddenByAdmin&&j.hiddenInfo&&j.hiddenInfo.reason?`<small class="hidden-why">${L("Reason","사유")}: ${esc(j.hiddenInfo.reason)}</small>`:""}</div>`;
   }).join("") : `<div class="empty" style="padding:30px">No jobs posted yet. Use the form below to publish your first job — it appears on the job board right away.</div>`;
   $("myJobs").querySelectorAll("[data-edit]").forEach(b=>b.onclick=()=>startEditJob(b.dataset.edit));
   $("myJobs").querySelectorAll("[data-toggle]").forEach(b=>b.onclick=()=>updateJob(b.dataset.toggle,j=>{j.status=j.status==="open"?"closed":"open"},"Job updated"));
@@ -2431,7 +2478,7 @@ function companyCardHtml(co, opts){
     <div class="co-cover" style="background:${coCover(co)}"></div>
     <div class="co-body">
       ${coLogoHtml(co,"co-logo")}
-      <h3>${esc(co.name||L("Your company","회사 이름"))}</h3>
+      <h3>${esc(co.name||L("Your company","회사 이름"))}${verBadge({verified:co.verified===true})}</h3>
       <div class="co-meta">${meta.map(esc).join(" · ")}</div>
       ${co.about?`<p class="co-about">${esc(co.about)}</p>`:opts.preview?`<p class="co-about" style="color:var(--muted)">${L("Write a few lines about your company…","회사 소개를 적어 주세요…")}</p>`:""}
       ${perkChips(co)?`<div class="co-perks">${perkChips(co)}</div>`:""}
@@ -3892,6 +3939,17 @@ ensureLangSelects();
     }
   });
 })();
+
+/* ===== P9: "🛡️ Admin" in the user menu (only for admins; the admin API checks the database itself) ===== */
+const _renderAuthAdm = renderAuth;
+renderAuth = function(){
+  _renderAuthAdm();
+  const menu = $("userMenu");
+  if(!menu || !(backend.user && backend.user.isAdmin) || $("menuAdmin")) return;
+  menu.querySelector('[data-act="logout"]').insertAdjacentHTML("beforebegin", `<a id="menuAdmin" class="menu-link" href="/admin.html">🛡️ ${L("Admin","관리자")}</a>`);
+};
+// an admin blocked this account while it was open
+window.addEventListener("wah-kicked", ()=>toast(L("Your account was blocked by an admin. Check your email.","관리자가 계정을 차단했어요. 이메일을 확인해 주세요.")));
 
 persist(); payLabel(); renderAll(); calcHours(); calcPay();
 initBackend().then(()=>{ if(location.hash==="#dashboard" && account && account.loggedIn) showView("dashboard"); });

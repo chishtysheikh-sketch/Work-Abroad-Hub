@@ -4,6 +4,9 @@ export function notFound(req, res) {
 
 export function errorHandler(err, req, res, next) {
   const dev = process.env.NODE_ENV !== "production";
+  // broken / too big JSON from the browser is the caller's mistake, not a server error
+  if (err.type === "entity.parse.failed") return res.status(400).json({ code: "invalid-argument", error: "Bad JSON." });
+  if (err.type === "entity.too.large") return res.status(413).json({ code: "resource-exhausted", error: "Too big." });
   if (err.code === 11000) {
     const keys = Object.keys(err.keyPattern || {});
     const msg = keys.includes("email") ? "This email is already registered."

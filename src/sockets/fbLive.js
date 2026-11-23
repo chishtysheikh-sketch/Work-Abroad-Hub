@@ -47,6 +47,13 @@ export function emitToUser(uid, event, data) {
   if (nsp && uid) nsp.to("user:" + uid).emit(event, data);
 }
 
+// P9: blocked → close every live connection of that user right away
+export function kickUser(uid) {
+  if (!nsp || !uid) return;
+  nsp.to("user:" + uid).emit("kicked", { reason: "blocked" });
+  nsp.in("user:" + uid).disconnectSockets(true);
+}
+
 export function registerFbLive(io) {
   nsp = io.of("/fb");
   nsp.use(async (socket, next) => {

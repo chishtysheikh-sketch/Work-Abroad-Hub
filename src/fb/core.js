@@ -55,12 +55,33 @@ export async function load(col, id) {
   return d ? d.data : null;
 }
 
+// P9: jobs an admin hid are only visible to their own employer (in their dashboard)
+export function visible(col, id, data, uid) {
+  if (col !== "postings" || !data || !Array.isArray(data.jobs) || uid === id) return data;
+  if (!data.jobs.some(j => j && j.hiddenByAdmin)) return data;
+  return { ...data, jobs: data.jobs.filter(j => !(j && j.hiddenByAdmin)) };
+}
+
+// P9: admin-only fields. Whatever the website sends, the stored value is kept.
+//   users/<uid> and postings/<uid>: company.verified ("✓ Verified employer")
+// (jobs[].hiddenByAdmin is checked in rules.js: changing it is refused)
+function keepAdminFields(col, old, next, data) {
+  if (col !== "users" && col !== "postings") return;
+  const was = old?.company?.verified;
+  if (data !== next && isObj(data?.company)) delete data.company.verified;     // merge / update: don't write it
+  if (was === undefined) { if (isObj(next?.company)) delete next.company.verified; }
+  else {
+    next.company = { ...(isObj(next.company) ? next.company : {}), verified: was };
+    if (data !== next && "company" in data && !isObj(data.company)) data.company = { verified: was };
+  }
+}
+
 // ---------- read ----------
 export async function readDoc(path, uid) {
   const { col, id } = parsePath(path, "doc");
   const data = await load(col, id);
   if (!(await canRead(col, id, data, uid, load))) throw new FbError("permission-denied", "Missing or insufficient permissions.", 403);
-  return { id, exists: !!data, data: data || null };
+  return { id, exists: !!data, data: visible(col, id, data, uid) || null };
 }
 
 const OPS = { "==": "$eq", "!=": "$ne", "<": "$lt", "<=": "$lte", ">": "$gt", ">=": "$gte", "array-contains": "$eq" };
@@ -82,7 +103,7 @@ export async function runQuery(path, q = {}, uid) {
   const limit = Math.min(Math.max(Number(q.limit) || 500, 1), 500);
   const rows = await FbDoc.find(filter).sort(sort).limit(limit).select("docId data").lean();
   const cache = {}, docs = [];
-  for (const r of rows) if (await canRead(col, r.docId, r.data, uid, load, cache)) docs.push({ id: r.docId, data: r.data });
+  for (const r of rows) if (await canRead(col, r.docId, r.data, uid, load, cache)) docs.push({ id: r.docId, data: visible(col, r.docId, r.data, uid) });
   return docs;
 }
 
@@ -107,6 +128,7 @@ export async function writeDoc({ op, path, data, merge }, uid, ctx = {}) {
 
   const kind = op === "delete" ? "delete" : old ? "update" : "create";
   if (kind === "delete" && !old) return { id, col };
+  if (kind !== "delete") keepAdminFields(col, old, next, data);
   const why = await canWrite(kind, col, id, old, next, uid, load, ctx);
   if (why) throw new FbError(why === NEED_VERIFY ? "failed-precondition" : "permission-denied", why, 403);
 

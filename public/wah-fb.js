@@ -216,6 +216,14 @@ socketReady.then(() => {
   socket.on("notif", n => fireN("new", n));
   socket.on("notifRead", d => fireN("read", d));
   socket.on("connect", () => fireN("sync"));
+  // P9: an admin blocked this account → log out on this page right away
+  socket.on("kicked", () => {
+    auth.currentUser = null;
+    api("/auth/logout", {}).catch(() => {});
+    fire();
+    window.dispatchEvent(new CustomEvent("wah-kicked"));
+    setTimeout(() => socket.connect(), 800);         // keep the job board live, as a visitor
+  });
 }).catch(() => {});
 
 /* ---------- references ---------- */

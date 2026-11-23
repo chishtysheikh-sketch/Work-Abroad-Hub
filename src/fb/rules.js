@@ -73,6 +73,22 @@ export function badImage(v, depth = 0) {
   return "";
 }
 
+// P9: a job an admin hid (hiddenByAdmin: true) stays closed and hidden until an admin un-hides it.
+// The employer may edit or delete it, but can't reopen it or touch hiddenByAdmin / hiddenInfo.
+export const HIDDEN_JOB = "An admin hid this job, so it can't be reopened. Please contact us if you think this is a mistake.";
+function hiddenJobChange(oldJobs, newJobs) {
+  const before = new Map((Array.isArray(oldJobs) ? oldJobs : []).filter(j => j && j.id != null).map(j => [String(j.id), j]));
+  for (const j of newJobs) {
+    if (!j || typeof j !== "object") continue;
+    const was = before.get(String(j.id));
+    const hidden = !!(was && was.hiddenByAdmin);
+    if (!!j.hiddenByAdmin !== hidden || (hidden && !same(was.hiddenInfo, j.hiddenInfo)) || (!hidden && j.hiddenInfo !== undefined))
+      return "Only an admin can hide or un-hide a job.";
+    if (hidden && j.status === "open") return HIDDEN_JOB;
+  }
+  return "";
+}
+
 export const NEED_VERIFY = "Please verify your email first. Check your inbox (and spam).";
 
 // op = "create" | "update" | "delete". Returns "" when allowed, otherwise a reason.
@@ -104,6 +120,8 @@ export async function canWrite(op, col, id, oldData, newData, uid, load, ctx = {
     if (n.jobs.length > 50) return "Max 50 jobs.";
     const img = badImage(n);
     if (img) return img;
+    const hid = hiddenJobChange(o.jobs, n.jobs);
+    if (hid) return hid;
     const low = n.jobs.find(j => j && j.status === "open" && tooLow(j));
     if (low) return `Pay is below the minimum wage (₩${MIN_WAGE.toLocaleString()}/hour): ${String(low.title || "").slice(0, 40)}`;
     return "";

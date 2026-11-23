@@ -20,6 +20,9 @@ const userSchema = new Schema({
   failedLogins: { type: Number, default: 0 },     // wrong passwords in a row
   lockUntil:    Date,                             // locked after 5 wrong passwords
   blocked:      { type: Boolean, default: false },
+  blockedReason: { type: String, maxlength: 500 },        // P9: shown to the user in the email
+  blockedAt:     Date,
+  isAdmin:      { type: Boolean, default: false },        // P9: SEPARATE from role (role is overwritten by the website profile)
   emailVerified:     { type: Boolean, default: false },
   emailVerifyHash:   { type: String, select: false },   // sha256 of the link token (never the token itself)
   emailVerifyExp:    { type: Date, select: false },
@@ -44,7 +47,7 @@ userSchema.methods.toPublic = function () {
   const u = this.toObject();
   delete u.passwordHash; delete u.tokenVersion; delete u.__v;
   delete u.failedLogins; delete u.lockUntil; delete u.emailVerifyCount; delete u.emailVerifyDay;
-  delete u.resetHash; delete u.resetExp; delete u.googleSub;
+  delete u.resetHash; delete u.resetExp; delete u.googleSub; delete u.isAdmin;
   if (u.role !== "student") delete u.student;
   if (u.role !== "employer") delete u.company;
   u.id = String(u._id);
