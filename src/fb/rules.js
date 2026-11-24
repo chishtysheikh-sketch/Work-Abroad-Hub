@@ -104,6 +104,8 @@ function hiddenJobChange(oldJobs, newJobs) {
   return "";
 }
 
+export const MOBILE_RE = /^010-?\d{4}-?\d{4}$/;
+export const BAD_MOBILE = "Please enter a Korean mobile number that starts with 010 (010-1234-5678).";
 export const NEED_VERIFY = "Please verify your email first. Check your inbox (and spam).";
 
 // op = "create" | "update" | "delete". Returns "" when allowed, otherwise a reason.
@@ -124,6 +126,10 @@ export async function canWrite(op, col, id, oldData, newData, uid, load, ctx = {
     if (uid !== id) return "Not your profile.";
     if (op === "delete") return "";
     if (!ROLES.includes(n.role)) return "Role must be student or employer.";
+    // students: a Korean mobile number 010-XXXX-XXXX (checked when it changes, so old profiles still save)
+    const ph = n.profile?.phone, oldPh = o.profile?.phone;
+    if (n.role === "student" && n.profile && ph !== oldPh && !MOBILE_RE.test(String(ph ?? "")))
+      return BAD_MOBILE;
     return badImage(n);
   }
 

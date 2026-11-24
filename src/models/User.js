@@ -26,6 +26,9 @@ const userSchema = new Schema({
   emailVerified:     { type: Boolean, default: false },
   emailVerifyHash:   { type: String, select: false },   // sha256 of the link token (never the token itself)
   emailVerifyExp:    { type: Date, select: false },
+  emailCodeHash:     { type: String, select: false },   // sha256 of the 6-digit code in the same email
+  emailCodeExp:      { type: Date, select: false },     // the code works for 30 minutes
+  emailCodeTries:    { type: Number, default: 0, select: false },   // wrong codes; 5 → ask for a new email
   emailVerifySentAt: Date,
   emailVerifyCount:  { type: Number, default: 0 },      // emails sent today (max 5)
   emailVerifyDay:    String,                            // "YYYY-MM-DD" of that count
@@ -48,6 +51,7 @@ userSchema.methods.toPublic = function () {
   delete u.passwordHash; delete u.tokenVersion; delete u.__v;
   delete u.failedLogins; delete u.lockUntil; delete u.emailVerifyCount; delete u.emailVerifyDay;
   delete u.resetHash; delete u.resetExp; delete u.googleSub; delete u.isAdmin;
+  delete u.emailCodeHash; delete u.emailCodeExp; delete u.emailCodeTries;
   if (u.role !== "student") delete u.student;
   if (u.role !== "employer") delete u.company;
   u.id = String(u._id);

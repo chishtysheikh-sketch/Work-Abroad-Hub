@@ -166,6 +166,17 @@ window.wahAuth = {
     await api("/auth/logout-all", {});
     auth.currentUser = null;
   },
+  // email ownership: the 6-digit code from the "Confirm your email" email
+  async verifyCode(code) {
+    await api("/auth/verify-code", { code });
+    if (auth.currentUser) auth.currentUser.emailVerified = true;
+  },
+  async resendVerification() { return api("/auth/resend-verification", {}); },
+  // "" when the address looks real, otherwise the reason (typo, temporary inbox, domain can't get mail…)
+  async checkEmail(email) {
+    try { const d = await api("/auth/check-email", { email }); return d.ok ? "" : (d.error || ""); }
+    catch { return ""; }                 // server busy/offline: don't block typing; sign-up checks again
+  },
 };
 
 // P7: upload a photo / logo as a file → "/api/files/<id>" (saved in the profile instead of the image itself)

@@ -1,4 +1,4 @@
-import { firebaseConfig } from "./firebase-config.js?v=1796000000";
+import { firebaseConfig } from "./firebase-config.js?v=1796000002";
 
 const MIN_WAGE = 10320;
 const CATS = {
@@ -135,7 +135,7 @@ async function initBackend(){
   if(!configReady()) return startLocal("Firebase isn't set up yet (fill in firebase-config.js), so accounts and jobs are saved on this device only.");
   try{
     const base = `https://www.gstatic.com/firebasejs/${FB_VERSION}/`;
-    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1796000000"),import("./wah-fb.js?v=1796000000"),import("./wah-fb.js?v=1796000000")]);
+    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1796000002"),import("./wah-fb.js?v=1796000002"),import("./wah-fb.js?v=1796000002")]);
     const app = appMod.initializeApp(firebaseConfig);
     backend.fb = {...authMod, ...fsMod};
     backend.auth = authMod.getAuth(app);
@@ -701,7 +701,7 @@ function authNote(){
 function rowHtml(label,inner,req,errId){return `<div class="prow"><label>${label}${req?' <span class="req">*</span>':""}</label><div>${inner}${errId?`<div class="err" id="${errId}"></div>`:""}</div></div>`}
 function citySelect(name,val){return `<select name="${name}">${ALL_CITIES.filter(c=>c!=="Remote").map(c=>`<option ${c===val?"selected":""}>${c}</option>`).join("")}</select>`}
 function fieldErr(form,name,msg){const i=form.elements[name];const e=$("err_"+name);if(i)i.classList.toggle("bad",!!msg);if(e){e.textContent=msg||"";e.classList.toggle("show",!!msg)}return !msg}
-const PHONE_RE=/^01[016789]-?\d{3,4}-?\d{4}$/, EMAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]+$/, BIZ_RE=/^\d{3}-?\d{2}-?\d{5}$/;
+const PHONE_RE=/^010-?\d{4}-?\d{4}$/, EMAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]+$/, BIZ_RE=/^\d{3}-?\d{2}-?\d{5}$/;
 
 // Does this form need to create a login (email + password) as well as the profile?
 const needsCredentials = () => backend.mode==="firebase" && !backend.user;
@@ -747,7 +747,7 @@ function studentForm(){
   const editing = account && account.role==="student" && account.loggedIn;
   if(account && account.role==="employer" && account.loggedIn && !confirmSwitch()) return;
   const p = (editing && account.profile) || {};
-  const prefillEmail = p.email || (account&&account.email) || (backend.user&&backend.user.email) || "";
+  const prefillEmail = (backend.user&&backend.user.email) || p.email || (account&&account.email) || "";
   const prefillName = p.name || (account&&account.displayName) || "";
   const years=[];for(let y=2010;y>=1960;y--)years.push(y);
   const [by,bm,bd] = (p.birth||"2001-1-1").split("-").map(Number);
@@ -756,13 +756,13 @@ function studentForm(){
     <p style="color:var(--muted);margin:4px 0 18px">${L("The first step of applying for a part-time job is filling out your profile.","알바 지원의 첫 단계는 프로필 작성이에요.")}</p>
     <form class="pform" id="stForm" novalidate>
       ${rowHtml(L("Name","이름"),`<input name="name" maxlength="50" value="${esc(prefillName)}" placeholder="${L("Full name as on your ARC","외국인등록증상 이름")}">`,1,"err_name")}
-      ${rowHtml(L("Email","이메일"),`<input name="email" type="email" maxlength="80" value="${esc(prefillEmail)}" placeholder="you@school.ac.kr" ${backend.user&&!needsCredentials()&&!editing?"":""}>`,1,"err_email")}
+      ${rowHtml(L("Email","이메일"),`<input name="email" type="email" maxlength="80" value="${esc(prefillEmail)}" placeholder="you@school.ac.kr" ${backend.user&&backend.user.email?"readonly":""}>${backend.user&&backend.user.email?`<small class="field-note">${backend.user.emailVerified?"✅ "+L("Verified login email","인증된 로그인 이메일"):"✉️ "+L("Your login email: confirm it with the code we emailed you","로그인 이메일: 메일로 받은 코드로 인증하세요")}</small>`:""}`,1,"err_email")}
       ${credentialRows()}
       ${rowHtml(L("Birth date","생년월일"),`<div class="trip"><select name="by">${years.map(y=>`<option ${y===by?"selected":""}>${y}</option>`).join("")}</select><select name="bm">${Array.from({length:12},(_,i)=>`<option ${i+1===bm?"selected":""}>${i+1}</option>`).join("")}</select><select name="bd">${Array.from({length:31},(_,i)=>`<option ${i+1===bd?"selected":""}>${i+1}</option>`).join("")}</select></div>`,1)}
       ${rowHtml(L("Gender","성별"),`<div class="seg" id="genderSeg"><button type="button" data-g="male" class="${p.gender==="male"?"on":""}">${L("Male","남성")}</button><button type="button" data-g="female" class="${p.gender==="female"?"on":""}">${L("Female","여성")}</button><button type="button" data-g="other" class="${p.gender==="other"?"on":""}">${L("Prefer not to say","선택 안 함")}</button></div>`,0)}
       ${rowHtml(L("City","거주 지역"),citySelect("city",p.city||"Seoul"),1)}
       ${rowHtml(L("Address","상세 주소"),`<input name="address" maxlength="80" value="${esc(p.address)}" placeholder="${L("e.g. 부산 남구 대연동","예: 부산 남구 대연동")}">`,0)}
-      ${rowHtml(L("Phone number","휴대폰 번호"),`<input name="phone" maxlength="13" value="${esc(p.phone)}" placeholder="010-1234-5678">`,1,"err_phone")}
+      ${rowHtml(L("Phone number","휴대폰 번호"),`<input name="phone" type="tel" inputmode="numeric" autocomplete="tel" maxlength="13" value="${esc(p.phone)}" placeholder="010-1234-5678">`,1,"err_phone")}
       ${rowHtml(L("Visa","비자"),`<select name="visa">${["D-2","D-4"].map(v=>`<option ${v===p.visa?"selected":""}>${v}</option>`).join("")}</select>`,1)}
       ${rowHtml(L("Korean level","한국어 수준"),`<select name="topik">${["No TOPIK","TOPIK 1","TOPIK 2","TOPIK 3","TOPIK 4","TOPIK 5","TOPIK 6"].map(v=>`<option ${v===p.topik?"selected":""}>${v}</option>`).join("")}</select>`,1)}
       ${rowHtml(L("School","학교"),`<input name="school" maxlength="60" value="${esc(p.school)}" placeholder="${L("University or language institute","대학교 또는 어학당")}">`,0)}
@@ -774,14 +774,16 @@ function studentForm(){
   $("backBtn").onclick = ()=>editing?closeModal():chooser();
   $("cancelBtn").onclick = closeModal;
   wireGoogleSignup("student");
+  wireEmailCheck($("stForm")); wireMobileFormat($("stForm"));
   $("stForm").onsubmit = async e=>{
     e.preventDefault(); const f=e.target, v=n=>f.elements[n].value.trim();
     const ok = [fieldErr(f,"name",v("name")?"":L("Please enter your name.","이름을 입력해 주세요.")),
       fieldErr(f,"email",EMAIL_RE.test(v("email"))?"":L("Please enter a valid email.","올바른 이메일을 입력해 주세요.")),
-      fieldErr(f,"phone",PHONE_RE.test(v("phone"))?"":L("Please enter your mobile phone number (010-XXXX-XXXX).","휴대폰 번호를 입력해 주세요.")),
+      fieldErr(f,"phone",PHONE_RE.test(v("phone"))?"":L("Please enter a Korean mobile number that starts with 010 (010-1234-5678).","010으로 시작하는 휴대폰 번호를 입력해 주세요 (010-1234-5678).")),
       checkPasswords(f)].every(Boolean);
     if(!ok) return;
     $("stSubmit").disabled=true;
+    if(!(await emailLooksReal(f))){ $("stSubmit").disabled=false; return; }
     if(!(await ensureSignedIn(f,"email"))){ $("stSubmit").disabled=false; return; }
     account = {role:"student",loggedIn:true,applied:(editing&&account.applied)||[],createdAt:(editing&&account.createdAt)||Date.now(),
       profile:{name:v("name"),birth:`${v("by")}-${v("bm")}-${v("bd")}`,gender,email:v("email"),city:v("city"),address:v("address"),phone:v("phone"),visa:v("visa"),topik:v("topik"),school:v("school"),source:v("source")}};
@@ -789,6 +791,7 @@ function studentForm(){
     backend.signingUp=false;
     closeModal(); renderAll();
     toast(editing?L("Profile saved","프로필이 저장됐어요"):L(`Welcome, ${account.profile.name}!`,`환영해요, ${account.profile.name}님!`));
+    if(!editing) askEmailCode();
   };
 }
 function confirmSwitch(){
@@ -832,7 +835,7 @@ function employerForm(){
     </form>${authNote()}`,"auth-modal");
   $("backBtn").onclick = ()=>editing?closeModal():chooser();
   $("cancelBtn").onclick = closeModal;
-  wireGoogleSignup("employer");
+  wireGoogleSignup("employer"); wireEmailCheck($("emForm"));
   $("emForm").onsubmit = async e=>{
     e.preventDefault(); const f=e.target, v=n=>f.elements[n].value.trim();
     const ok = [fieldErr(f,"email",EMAIL_RE.test(v("email"))?"":L("Please enter a valid email.","올바른 이메일을 입력해 주세요.")),
@@ -843,6 +846,7 @@ function employerForm(){
       fieldErr(f,"phone",/^0\d{1,2}-?\d{3,4}-?\d{4}$/.test(v("phone"))?"":L("Please enter a phone number.","연락처를 입력해 주세요."))].every(Boolean);
     if(!ok) return;
     $("emSubmit").disabled=true;
+    if(!(await emailLooksReal(f))){ $("emSubmit").disabled=false; return; }
     if(!(await ensureSignedIn(f,"email"))){ $("emSubmit").disabled=false; return; }
     const company = {name:v("name"),biz:v("biz"),type:v("type"),contact:v("contact"),email:v("email"),phone:v("phone"),city:v("city"),address:v("address"),langs:v("langs")};
     account = {role:"employer",loggedIn:true,createdAt:(editing&&account.createdAt)||Date.now(),profile:{contact:company.contact}};
@@ -855,7 +859,7 @@ function employerForm(){
     watchApplications();
     closeModal(); renderAll();
     toast(editing?L("Company profile saved","기업 정보가 저장됐어요"):L("Employer account created — post your first job!","기업 회원 가입 완료! 첫 공고를 올려보세요."));
-    showView("dashboard"); if(!editing) startNewJob();
+    showView("dashboard"); if(!editing){ startNewJob(); askEmailCode(); }
   };
 }
 
@@ -2113,7 +2117,7 @@ function buildPortal(){
         <label class="p-search">🔍<input id="pSearch" placeholder="${L("Search jobs or applicants…","공고, 지원자 검색…")}"></label>
         <button class="p-bell" id="pBell">🔔<span id="pBellN"></span></button>
         <button class="theme-btn" id="pTheme"></button>
-        <div class="p-me"><span class="avatar" id="pAvatar" style="background:var(--ink)"></span><b id="pName"></b></div>
+        <div class="p-me" id="pMe"><span class="avatar" id="pAvatar" style="background:var(--ink)"></span><b id="pName"></b></div>
       </div>
       <div id="pBanner"></div>
       <div class="p-page" data-page="dashboard" id="pg_dashboard"></div>
@@ -2140,6 +2144,12 @@ function buildPortal(){
   $("pBurger").onclick=()=>$("pSide").classList.toggle("open");
   $("pBell").onclick=()=>setPortalPage("notifications");
   $("pTheme").onclick=()=>{ $("themeBtn").click(); renderPortal(); };
+  attachMeMenu($("pMe"), ()=>[
+    ["🏢", L("Company Profile","기업 정보"), ()=>setPortalPage("company")],
+    ["⚙️", L("Settings","설정"), ()=>setPortalPage("settings")],
+    ["-"],
+    ["↪️", L("Logout","로그아웃"), openLogoutConfirm]
+  ]);
   $("pSearch").oninput=e=>{ portalQuery=e.target.value.trim().toLowerCase(); $("pAppQ").value=e.target.value; if(portalPage!=="applicants" && portalPage!=="jobs") setPortalPage("applicants"); filterPortalLists(); };
   ["pJobQ","pJobS","pAppQ","pAppJ","pAppS"].forEach(id=>$(id).addEventListener("input", filterPortalLists));
 }
@@ -2426,6 +2436,34 @@ function openLogoutConfirm(){
   $("loNo").onclick=closeModal; $("loYes").onclick=()=>{ closeModal(); doLogout(); };
 }
 
+/* ---- account menu on the top-bar avatar/name chip ---- */
+// items: [[icon, label, onClick], ...]
+function attachMeMenu(chip, items){
+  chip.classList.add("p-me-btn");
+  chip.setAttribute("role","button"); chip.setAttribute("tabindex","0");
+  chip.setAttribute("aria-haspopup","menu"); chip.setAttribute("aria-expanded","false");
+  const close=()=>{ const m=chip.querySelector(".p-me-menu"); if(m) m.remove(); chip.setAttribute("aria-expanded","false"); };
+  const open=()=>{
+    const m=document.createElement("div"); m.className="p-me-menu"; m.setAttribute("role","menu");
+    items().forEach(([ic,label,fn])=>{
+      if(ic==="-"){ m.append(document.createElement("hr")); return; }
+      const b=document.createElement("button"); b.type="button"; b.setAttribute("role","menuitem");
+      b.innerHTML=`<span>${ic}</span>${esc(label)}`;
+      b.onclick=e=>{ e.stopPropagation(); close(); fn(); };
+      m.append(b);
+    });
+    chip.append(m); chip.setAttribute("aria-expanded","true");
+    const first=m.querySelector("button"); if(first) first.focus();
+  };
+  const toggle=()=>chip.querySelector(".p-me-menu") ? close() : open();
+  chip.addEventListener("click", e=>{ if(e.target.closest(".p-me-menu")) return; e.stopPropagation(); toggle(); });
+  chip.addEventListener("keydown", e=>{
+    if((e.key==="Enter"||e.key===" ") && !e.target.closest(".p-me-menu")){ e.preventDefault(); toggle(); }
+    else if(e.key==="Escape"){ close(); chip.focus(); }
+  });
+  document.addEventListener("click", e=>{ if(!chip.contains(e.target)) close(); });
+}
+
 /* ---- hook into the existing dashboard code ---- */
 const _renderDashboardP = renderDashboard;
 renderDashboard = function(){ _renderDashboardP(); buildPortal(); renderPortal(); };
@@ -2699,6 +2737,9 @@ function buildStudentDash(){
     const g=e.target.closest("[data-sgo]"); if(g){ e.preventDefault(); setStudentPage(g.dataset.sgo); return; }
     const j=e.target.closest("[data-job]"); if(j && !e.target.closest("button:not([data-job])")) openJob(j.dataset.job);
   });
+  $("stDash").addEventListener("keydown", e=>{
+    const g=e.target.closest(".p-stat-link[data-sgo]"); if(g && (e.key==="Enter"||e.key===" ")){ e.preventDefault(); setStudentPage(g.dataset.sgo); }
+  });
   $("sBoard").onclick=()=>closeStudentDash();
   $("sLogout").onclick=()=>{
     openModal(`<div style="text-align:center;padding:14px 6px"><div class="logout-ic">🚪</div><h3 style="font-size:24px;margin:10px 0 6px">${L("Log Out","로그아웃")}</h3>
@@ -2708,6 +2749,12 @@ function buildStudentDash(){
   };
   $("sBurger").onclick=()=>$("sSide").classList.toggle("open");
   $("sTheme").onclick=()=>{ $("themeBtn").click(); renderStudentDash(); };
+  attachMeMenu($("sMe"), ()=>[
+    ["👤", L("My Profile","내 프로필"), ()=>setStudentPage("profile")],
+    ["⚙️", L("Settings","설정"), ()=>setStudentPage("settings")],
+    ["-"],
+    ["↪️", L("Logout","로그아웃"), ()=>$("sLogout").click()]
+  ]);
   $("sSearch").onkeydown=e=>{ if(e.key!=="Enter") return; const q=e.target.value; closeStudentDash();
     $("qInput").value=q; $("heroSearch").requestSubmit(); };
 }
@@ -2784,10 +2831,10 @@ function stHome(el,D){
   const pf=D.pf, S=D.S, v=S.v, comp=stCompleteness();
   const limit=v.vacation?null:v.limit, hpct=limit?Math.min(100,S.counted/limit*100):0;
   const inProg=D.apps.filter(a=>a.status==="contacted"||a.status==="interview").length;
-  const cards=[["📨",L("Applications","지원"),D.apps.length||D.appliedIds.length,L("Jobs you applied to","지원한 공고"),"c-blue"],
-    ["🗣️",L("In progress","진행 중"),inProg,L("Contacted or interview","연락·면접 단계"),"c-purple"],
-    ["★",L("Saved jobs","저장한 공고"),D.savedJobs.length,L("Waiting for you","관심 공고"),"c-orange"],
-    ["⏱️",L("Hours this week","이번 주 근무"),S.counted,limit?L(`of ${limit} h allowed`,`허용 ${limit}시간 중`):L("Vacation — no limit","방학 — 제한 없음"),"c-teal"]];
+  const cards=[["📨",L("Applications","지원"),D.apps.length||D.appliedIds.length,L("Jobs you applied to","지원한 공고"),"c-blue","apps"],
+    ["🗣️",L("In progress","진행 중"),inProg,L("Contacted or interview","연락·면접 단계"),"c-purple","apps"],
+    ["★",L("Saved jobs","저장한 공고"),D.savedJobs.length,L("Waiting for you","관심 공고"),"c-orange","saved"],
+    ["⏱️",L("Hours this week","이번 주 근무"),S.counted,limit?L(`of ${limit} h allowed`,`허용 ${limit}시간 중`):L("Vacation — no limit","방학 — 제한 없음"),"c-teal","hours"]];
   // hours per day this week
   const perDay=[0,0,0,0,0,0,0]; S.list.forEach(s=>{ const d=(new Date(s.date+"T00:00").getDay()+6)%7; perDay[d]+=shiftHours(s); });
   const maxH=Math.max(4,...perDay), today=(new Date().getDay()+6)%7;
@@ -2805,7 +2852,7 @@ function stHome(el,D){
     ${comp.pct<100?`<div class="p-card st-complete"><div class="st-cring">${matchRing(comp.pct,56,"anim")}</div><div><b>${L("Complete your profile for better matches","프로필을 완성하면 추천이 더 정확해요")}</b><small>${L("Missing:","부족한 항목:")} ${comp.missing.join(", ")}</small></div><button class="btn btn-primary btn-sm" data-sgo="profile">${L("Finish profile","프로필 완성")}</button></div>`:""}
     <div class="p-dgrid">
       <div class="p-col">
-        <div class="p-stats">${cards.map(([i,t,v2,s,c],k)=>`<div class="p-stat ${c}" style="--d:${k*0.08}s"><div class="ps-top"><span class="ps-ic">${i}</span><div><small>${t}</small><b data-count="${v2}">0</b></div></div><div class="ps-bot"><span>${s}</span></div></div>`).join("")}</div>
+        <div class="p-stats">${cards.map(([i,t,v2,s,c,go],k)=>`<div class="p-stat p-stat-link ${c}" style="--d:${k*0.08}s" data-sgo="${go}" role="button" tabindex="0"><div class="ps-top"><span class="ps-ic">${i}</span><div><small>${t}</small><b data-count="${v2}">0</b></div></div><div class="ps-bot"><span>${s}</span></div></div>`).join("")}</div>
         <div class="p-card"><div class="pc-head"><b>🎯 ${L("Top matches for you","나에게 맞는 공고")}</b><a href="#" data-sgo="jobs">${L("See all →","전체 보기 →")}</a></div>
           ${!(hasSchedule()||hasHome())?`<div class="fy-empty" style="padding:20px"><b>${L("Get your match %","일치율 받기")}</b><p>${L("Add your free time and home so we can rank jobs by schedule, distance and hourly pay.","가능한 시간과 집 위치를 등록하면 일정·거리·시급으로 추천해요.")}</p><button class="btn btn-primary btn-sm" id="sSetup">🗓️ ${L("Add my schedule & home","일정·집 주소 등록")}</button></div>`
             : top.length?top.map(({j,m})=>stJobRow(j,m)).join(""):`<div class="empty" style="padding:20px">${L("No matches yet.","아직 없어요.")}</div>`}</div>
@@ -4032,6 +4079,112 @@ if("serviceWorker" in navigator && (location.protocol==="https:" || ["localhost"
   });
 }
 refreshInstallUI();
+
+/* =====================================================================
+   Real email + real phone at sign-up
+   • email: checked live with the server (format, typos like gmial.com, temporary inboxes,
+     domain that can't receive mail), then the person proves they own the inbox with a
+     6-digit code (or the link) from the "Confirm your email" email. Until then the server
+     refuses posting, applying and chatting, and a banner reminds them.
+   • phone (students): Korean mobile only, 010-XXXX-XXXX, typed dashes added automatically.
+   ===================================================================== */
+const emailCheckCache = new Map();
+async function serverEmailProblem(email){
+  if(backend.mode!=="firebase" || !window.wahAuth || !window.wahAuth.checkEmail) return "";
+  const key=email.trim().toLowerCase();
+  if(!emailCheckCache.has(key)) emailCheckCache.set(key, window.wahAuth.checkEmail(key));
+  return emailCheckCache.get(key);
+}
+function wireEmailCheck(form){
+  const el=form && form.elements.email; if(!el || el.readOnly) return;
+  el.addEventListener("blur", async ()=>{
+    const val=el.value.trim(); if(!val) return;
+    if(!EMAIL_RE.test(val)){ fieldErr(form,"email",L("Please enter a valid email.","올바른 이메일을 입력해 주세요.")); return; }
+    const msg = await serverEmailProblem(val);
+    if(el.value.trim()===val) fieldErr(form,"email", msg ? "⚠️ "+msg : "");
+  });
+  el.addEventListener("input", ()=>fieldErr(form,"email",""));
+}
+// before creating the account: stop here if the server already knows the address is fake
+async function emailLooksReal(form){
+  const el=form.elements.email; if(!el || el.readOnly) return true;
+  const msg = await serverEmailProblem(el.value);
+  return fieldErr(form,"email", msg ? "⚠️ "+msg : "");
+}
+function formatMobile(raw){
+  const d=String(raw).replace(/\D/g,"").slice(0,11);
+  return d.length<4 ? d : d.length<8 ? `${d.slice(0,3)}-${d.slice(3)}` : `${d.slice(0,3)}-${d.slice(3,7)}-${d.slice(7)}`;
+}
+function wireMobileFormat(form){
+  const el=form && form.elements.phone; if(!el) return;
+  if(el.value) el.value=formatMobile(el.value);
+  el.addEventListener("input", ()=>{
+    el.value=formatMobile(el.value);
+    const d=el.value.replace(/\D/g,"");
+    const wrong = d.length>=3 && !d.startsWith("010");
+    fieldErr(form,"phone", wrong ? L("Korean mobile numbers start with 010.","휴대폰 번호는 010으로 시작해요.") : "");
+  });
+  el.addEventListener("blur", ()=>{ if(el.value && !PHONE_RE.test(el.value)) fieldErr(form,"phone",L("Please enter a Korean mobile number that starts with 010 (010-1234-5678).","010으로 시작하는 휴대폰 번호를 입력해 주세요 (010-1234-5678).")); });
+}
+
+const needsEmailCode = () => backend.mode==="firebase" && backend.user && backend.user.emailVerified===false && account && !account.pending;
+function askEmailCode(){
+  if(!needsEmailCode()) return;
+  const email=backend.user.email||"";
+  openModal(`<div class="vcode">
+    <div class="vcode-ic">✉️</div>
+    <h3>${L("Confirm your email","이메일 인증")}</h3>
+    <p>${L("We sent a 6-digit code to","6자리 코드를 보냈어요:")}<br><b>${esc(email)}</b></p>
+    <form id="vcForm" novalidate>
+      <input id="vcInput" class="vcode-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" aria-label="${L("6-digit code","6자리 코드")}">
+      <div class="err" id="vcErr"></div>
+      <button class="btn btn-primary" id="vcOk" type="submit">${L("Confirm email","인증하기")}</button>
+    </form>
+    <div class="vcode-links"><button class="back-link" id="vcResend">${L("Send a new code","새 코드 받기")}</button><span>·</span><button class="back-link" id="vcLater">${L("Later","나중에")}</button></div>
+    <small>${L("Can't find it? Check your spam folder. Until you confirm, you can't apply, post jobs or chat.","메일이 없나요? 스팸함을 확인하세요. 인증 전에는 지원, 공고 등록, 채팅을 할 수 없어요.")}</small>
+  </div>`,"auth-modal");
+  const inp=$("vcInput"), err=$("vcErr");
+  const showErr=m=>{ err.textContent=m||""; err.classList.toggle("show",!!m); inp.classList.toggle("bad",!!m); };
+  inp.focus();
+  inp.oninput=()=>{ inp.value=inp.value.replace(/\D/g,"").slice(0,6); showErr(""); if(inp.value.length===6) $("vcForm").requestSubmit(); };
+  $("vcForm").onsubmit=async e=>{
+    e.preventDefault();
+    if(inp.value.length!==6){ showErr(L("Enter the 6-digit code from the email.","메일의 6자리 코드를 입력하세요.")); return; }
+    $("vcOk").disabled=true;
+    try{
+      await window.wahAuth.verifyCode(inp.value);
+      backend.user.emailVerified=true;
+      closeModal(); renderAll(); toast("✅ "+L("Email confirmed. You're all set!","이메일 인증 완료!"));
+    }catch(ex){ showErr(ex && ex.message || L("That code didn't work.","코드가 맞지 않아요.")); inp.select(); }
+    finally{ const b=$("vcOk"); if(b) b.disabled=false; }
+  };
+  $("vcResend").onclick=async ()=>{
+    const b=$("vcResend"); b.disabled=true;
+    try{ const r=await window.wahAuth.resendVerification();
+      if(r && r.alreadyVerified){ backend.user.emailVerified=true; closeModal(); renderAll(); toast("✅ "+L("Your email is already confirmed.","이미 인증됐어요.")); return; }
+      showErr(""); toast(L("New code sent. Check your inbox.","새 코드를 보냈어요.")); inp.value=""; inp.focus();
+    }catch(ex){ showErr(ex && ex.message || L("Couldn't send the email.","메일을 보내지 못했어요.")); }
+    finally{ setTimeout(()=>{ const x=$("vcResend"); if(x) x.disabled=false; }, 60000); }
+  };
+  $("vcLater").onclick=()=>{ closeModal(); renderVerifyBar(); };
+}
+function renderVerifyBar(){
+  let bar=$("verifyBar");
+  if(!needsEmailCode()){ if(bar) bar.remove(); return; }
+  if(!bar){
+    bar=document.createElement("div"); bar.id="verifyBar"; bar.setAttribute("role","status");
+    document.body.prepend(bar);
+  }
+  bar.innerHTML=`<span>⚠️ ${L("Confirm your email","이메일을 인증하세요")} <b>${esc(backend.user.email||"")}</b>. ${L("Until then you can't apply, post jobs or chat.","인증 전에는 지원·공고 등록·채팅이 안 돼요.")}</span><button class="btn btn-sm btn-primary" id="vbOpen">${L("Enter code","코드 입력")}</button>`;
+  $("vbOpen").onclick=askEmailCode;
+}
+const _renderAllVB = renderAll;
+renderAll = function(){ _renderAllVB(); renderVerifyBar(); };
+// the email's one-click link lands on /?verified=1 (or =expired)
+(()=>{ const q=new URLSearchParams(location.search), v=q.get("verified"); if(!v) return;
+  q.delete("verified"); history.replaceState(null,"",location.pathname+(q.toString()?"?"+q:"")+location.hash);
+  setTimeout(()=>toast(v==="1" ? "✅ "+L("Email confirmed. You're all set!","이메일 인증 완료!") : L("That link has expired. Log in and press \"Send a new code\".","링크가 만료됐어요. 로그인 후 새 코드를 받으세요.")), 600);
+})();
 
 persist(); payLabel(); renderAll(); calcHours(); calcPay();
 initBackend().then(()=>{ if(location.hash==="#dashboard" && account && account.loggedIn) showView("dashboard"); });

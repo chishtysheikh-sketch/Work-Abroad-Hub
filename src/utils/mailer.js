@@ -22,7 +22,8 @@ export async function sendMail({ to, subject, html, text }) {
     // production: links hold login / reset tokens → never in the logs; only say that nothing was sent
     if (isProd) { logger.warn({ to: shortHash(to), subject }, "📧 email NOT sent: SMTP is not set up"); return { printed: false }; }
     const links = (text || "").match(/https?:\/\/\S+/g) || [];
-    logger.info(`📧 EMAIL (not sent: SMTP is not set up in .env)\n   to: ${to}\n   subject: ${subject}${links.map(l => "\n   link: " + l).join("")}\n`);
+    const codes = (text || "").match(/Your code: \d{6}/g) || [];
+    logger.info(`📧 EMAIL (not sent: SMTP is not set up in .env)\n   to: ${to}\n   subject: ${subject}${codes.map(c => "\n   " + c).join("")}${links.map(l => "\n   link: " + l).join("")}\n`);
     return { printed: true };
   }
   try {
@@ -40,14 +41,17 @@ const escHtml = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&
 
 // Branded email: title, a few lines of text, one big button, plain-text fallback.
 // → { html, text } ready for sendMail
-export function emailTemplate({ title, lines = [], button, url, note, footer = "If you didn't ask for this, ignore this email." }) {
+export function emailTemplate({ title, lines = [], code, button, url, note, footer = "If you didn't ask for this, ignore this email." }) {
+  if (code) lines = [...lines, `Your code: ${code}`];   // plain-text line (also what the dev console prints)
   const html = `<!doctype html><html><body style="margin:0;background:#f4f5f9;font-family:Arial,Helvetica,sans-serif;color:#14213d">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:28px 12px"><tr><td align="center">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden">
       <tr><td style="background:#2563eb;padding:18px 28px;color:#ffffff;font-size:20px;font-weight:bold">Work Abroad Hub</td></tr>
       <tr><td style="padding:28px">
         <h1 style="font-size:22px;margin:0 0 14px">${escHtml(title)}</h1>
-        ${lines.map(l => `<p style="font-size:15px;line-height:1.5;margin:0 0 12px">${escHtml(l)}</p>`).join("")}
+        ${lines.filter(l => !code || l !== `Your code: ${code}`).map(l => `<p style="font-size:15px;line-height:1.5;margin:0 0 12px">${escHtml(l)}</p>`).join("")}
+        ${code ? `<p style="font-size:14px;color:#6b7490;margin:18px 0 6px">Your verification code</p>
+        <p style="font-size:34px;font-weight:bold;letter-spacing:10px;margin:0 0 8px;font-family:Menlo,Consolas,monospace">${escHtml(code)}</p>` : ""}
         ${url ? `<p style="margin:24px 0"><a href="${escHtml(url)}" style="display:inline-block;background:#ff8a3d;color:#ffffff;text-decoration:none;font-weight:bold;font-size:16px;padding:14px 26px;border-radius:12px">${escHtml(button || "Open")}</a></p>
         <p style="font-size:12px;color:#6b7490;word-break:break-all">Or copy this link: ${escHtml(url)}</p>` : ""}
         ${note ? `<p style="font-size:13px;color:#6b7490">${escHtml(note)}</p>` : ""}

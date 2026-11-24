@@ -40,20 +40,29 @@ async function uidOf(req) {
 const sha256 = s => crypto.createHash("sha256").update(s).digest("hex");
 const today = () => new Date().toISOString().slice(0, 10);
 
-// new link token: the email gets the token, the database only keeps its hash (valid 24 h)
-function newVerifyFields() {
+// One email proves the person owns the inbox, two ways:
+//   a link (valid 24 h) and a 6-digit code typed on the website (valid 30 min, 5 wrong tries).
+// The database only keeps hashes. The code hash includes the email, so equal codes give different hashes.
+const codeHash = (email, code) => sha256(`${email}:${code}`);
+const CODE_TRIES = 5;
+function newVerifyFields(email) {
   const token = crypto.randomBytes(32).toString("hex");
-  return { token, set: { emailVerifyHash: sha256(token), emailVerifyExp: new Date(Date.now() + 24 * 3600 * 1000), emailVerifySentAt: new Date() } };
+  const code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+  return { token, code, set: {
+    emailVerifyHash: sha256(token), emailVerifyExp: new Date(Date.now() + 24 * 3600 * 1000), emailVerifySentAt: new Date(),
+    emailCodeHash: codeHash(email, code), emailCodeExp: new Date(Date.now() + 30 * 60 * 1000), emailCodeTries: 0,
+  } };
 }
 
-function sendVerifyEmail(email, token) {
+function sendVerifyEmail(email, token, code) {
   const url = `${env.APP_URL}/api/fb/auth/verify-email?token=${token}`;
-  return sendMail({ to: email, subject: "Confirm your email", ...emailTemplate({
+  return sendMail({ to: email, subject: `${code} is your Work Abroad Hub code`, ...emailTemplate({
     title: "Confirm your email",
-    lines: ["Welcome to Work Abroad Hub! 👋", "Please confirm this is your email address. After that you can post jobs, apply and chat."],
-    button: "Confirm my email", url, note: "This link works for 24 hours.",
+    lines: ["Welcome to Work Abroad Hub! 👋", "Type this code on the website to confirm this is your email address. After that you can post jobs, apply and chat."],
+    code, button: "Or confirm with one click", url, note: "The code works for 30 minutes, the button for 24 hours.",
   }) });
 }
+const verifiedNow = { $set: { emailVerified: true }, $unset: { emailVerifyHash: 1, emailVerifyExp: 1, emailCodeHash: 1, emailCodeExp: 1, emailCodeTries: 1 } };
 
 const limiter = (windowMs, limit, code, error, name) => rateLimit({
   windowMs, limit, standardHeaders: true, legacyHeaders: false,
@@ -72,14 +81,14 @@ router.post("/auth/signup", authLimiter, async (req, res) => {
   const weak = validatePassword(password, email);
   if (weak) return fail(res, 400, "auth/weak-password", weak);
   if (await User.exists({ email })) return fail(res, 409, "auth/email-already-in-use", "This email already has an account.");
-  const v = newVerifyFields();
+  const v = newVerifyFields(email);
   const user = await User.create({
     email, passwordHash: await bcrypt.hash(password, BCRYPT_COST),
     role: "student",                       // becomes the real role when the profile form is saved
     name: email.split("@")[0].slice(0, 60), agreedAt: new Date(),
     ...v.set, emailVerifyCount: 1, emailVerifyDay: today(), lastLoginAt: new Date(),
   });
-  sendVerifyEmail(email, v.token);         // not awaited: sign-up stays fast; failures are logged
+  sendVerifyEmail(email, v.token, v.code); // not awaited: sign-up stays fast; failures are logged
   setAuthCookie(res, user);
   res.status(201).json({ user: shape(user) });
 });
@@ -105,7 +114,7 @@ router.get("/auth/verify-email", verifyLimiter, async (req, res) => {
   if (!/^[a-f0-9]{64}$/.test(token)) return res.redirect("/?verified=expired");
   const user = await User.findOneAndUpdate(
     { emailVerifyHash: sha256(token), emailVerifyExp: { $gt: new Date() } },
-    { $set: { emailVerified: true }, $unset: { emailVerifyHash: 1, emailVerifyExp: 1 } });
+    verifiedNow);
   if (!user) return res.redirect("/?verified=expired");
   forgetSession(user._id);                 // so posting works right away, not after the 30 s cache
   res.redirect("/?verified=1");
@@ -122,11 +131,45 @@ router.post("/auth/resend-verification", authLimiter, async (req, res) => {
     return fail(res, 429, "auth/too-many-requests", "Please wait a minute before asking for another email.");
   const count = user.emailVerifyDay === today() ? (user.emailVerifyCount || 0) : 0;
   if (count >= 5) return fail(res, 429, "auth/too-many-requests", "You can resend the email 5 times a day. Please try again tomorrow.");
-  const v = newVerifyFields();
+  const v = newVerifyFields(user.email);
   await User.updateOne({ _id: uid }, { $set: { ...v.set, emailVerifyCount: count + 1, emailVerifyDay: today() } });
-  const r = await sendVerifyEmail(user.email, v.token);
+  const r = await sendVerifyEmail(user.email, v.token, v.code);
   if (r.failed) return fail(res, 502, "unavailable", "We couldn't send the email right now. Please try again later.");
   res.json({ ok: true });
+});
+
+// the 6-digit code from the email, typed on the website
+const codeLimiter = limiter(15 * 60 * 1000, 30, "auth/too-many-requests", "Too many tries. Wait a moment.", "codeLimiter");
+router.post("/auth/verify-code", codeLimiter, async (req, res) => {
+  const uid = await uidOf(req);
+  if (!uid) return fail(res, 401, "auth/requires-recent-login", "Please log in.");
+  const code = String(req.body?.code || "").replace(/\D/g, "");
+  if (code.length !== 6) return fail(res, 400, "auth/invalid-code", "Enter the 6-digit code from the email.");
+  const user = await User.findById(uid).select("+emailCodeHash +emailCodeExp +emailCodeTries email emailVerified");
+  if (!user) return fail(res, 401, "auth/requires-recent-login", "Please log in.");
+  if (user.emailVerified) return res.json({ ok: true, alreadyVerified: true });
+  if (!user.emailCodeHash || !user.emailCodeExp || user.emailCodeExp < new Date())
+    return fail(res, 400, "auth/code-expired", "This code has expired. Press \"Send a new code\".");
+  if ((user.emailCodeTries || 0) >= CODE_TRIES)
+    return fail(res, 400, "auth/code-expired", "Too many wrong codes. Press \"Send a new code\".");
+  const a = Buffer.from(codeHash(user.email, code)), b = Buffer.from(user.emailCodeHash);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    const tries = (user.emailCodeTries || 0) + 1;
+    await User.updateOne({ _id: uid }, { $set: { emailCodeTries: tries } });
+    const left = CODE_TRIES - tries;
+    return fail(res, 400, "auth/invalid-code", left > 0 ? `Wrong code. ${left} ${left === 1 ? "try" : "tries"} left.` : "Too many wrong codes. Press \"Send a new code\".");
+  }
+  await User.updateOne({ _id: uid }, verifiedNow);
+  forgetSession(uid);                      // posting / applying works right away
+  res.json({ ok: true });
+});
+
+// live check while typing the email on the sign-up form (format, typos, temporary inboxes, mail server).
+// It never says whether an account exists.
+const checkLimiter = limiter(15 * 60 * 1000, 60, "auth/too-many-requests", "Too many tries. Wait a moment.", "checkEmailLimiter");
+router.post("/auth/check-email", checkLimiter, async (req, res) => {
+  const bad = await checkEmail(normalizeEmail(req.body?.email));
+  res.json(bad ? { ok: false, error: bad } : { ok: true });
 });
 
 // ---------- P6: Google sign-in ----------
@@ -345,6 +388,11 @@ router.post("/write", writeLimiter, async (req, res) => {
   const { op, path, data, merge } = req.body || {};
   req.fbWrite = { uid, op, path: typeof path === "string" ? path.slice(0, 200) : null };   // for the security log
   if (!["set", "update", "delete", "add"].includes(op)) throw new FbError("invalid-argument", "Bad op");
+  // the email on a student profile (what employers see) is always the login email the person verified
+  if (uid && path === `users/${uid}` && data && typeof data === "object" && data.profile && typeof data.profile === "object" && "email" in data.profile) {
+    const me = await User.findById(uid).select("email").lean();
+    if (me) data.profile.email = me.email;
+  }
   const out = await writeDoc({ op, path, data, merge: !!merge }, uid, { verified: !!(t && t.verified) });
 
   // keep the login account's role/name in step with the website profile
