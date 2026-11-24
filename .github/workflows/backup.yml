@@ -1,0 +1,68 @@
+# Daily encrypted backup of the production database (scripts/backup.js), kept 30 days as a workflow artifact.
+#
+# Set up once (GitHub → Settings → Secrets and variables → Actions → New repository secret):
+#   PROD_MONGODB_URI    the production connection string (MongoDB Atlas)
+#   BACKUP_PASSPHRASE   a long random passphrase; keep a copy in your password manager
+# Atlas: Network Access must allow GitHub's runners (0.0.0.0/0 with a strong database password).
+# Without the secrets the job only prints a reminder.
+#
+# Restore: download the artifact → unzip → BACKUP_PASSPHRASE=… node scripts/restore.js <file.wahb>   (dry run first)
+name: Backup
+
+on:
+  schedule:
+    - cron: "30 18 * * *"      # every day 03:30 Korea time
+  workflow_dispatch:           # "Run workflow" button for a backup right now
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MONGODB_URI: ${{ secrets.PROD_MONGODB_URI }}
+      BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+    steps:
+      - name: Check the secrets
+        id: check
+        run: |
+          if [ -z "$MONGODB_URI" ] || [ -z "$BACKUP_PASSPHRASE" ]; then
+            echo "::warning::Backups are off: add the PROD_MONGODB_URI and BACKUP_PASSPHRASE repository secrets."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.check.outputs.ready == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.ready == 'true'
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --omit=dev
+        if: steps.check.outputs.ready == 'true'
+
+      - name: Back up
+        if: steps.check.outputs.ready == 'true'
+        run: node scripts/backup.js --out backups
+
+      - name: Check the backup opens
+        if: steps.check.outputs.ready == 'true'
+        run: node scripts/restore.js "$(ls backups/*.wahb)"
+
+      - uses: actions/upload-artifact@v4
+        if: steps.check.outputs.ready == 'true'
+        with:
+          name: wah-backup-${{ github.run_id }}
+          path: backups/*.wahb
+          retention-days: 30
+          if-no-files-found: error
