@@ -594,9 +594,17 @@ body.dash #dashboard{padding:0}
 .p-me-menu{position:absolute;top:calc(100% + 8px);right:0;min-width:200px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.25);padding:6px;z-index:50;animation:pagein .15s ease;cursor:default}
 .p-me-menu button{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;color:var(--ink);font:inherit;font-size:14px;text-align:left;padding:10px 12px;border-radius:10px;cursor:pointer}
 .p-me-menu button:hover,.p-me-menu button:focus-visible{background:var(--bg);outline:0}
-.p-stat-link{cursor:pointer;transition:transform .15s,box-shadow .15s,border-color .15s}
-.p-stat-link:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(0,0,0,.18);border-color:#3b6cf6}
-.p-stat-link:focus-visible{outline:2px solid #3b6cf6;outline-offset:2px}
+/* clickable dashboard cards (stat cards, Job Status legend rows, "Finish profile") */
+.p-stat-link,.p-link{cursor:pointer;transition:transform .15s,box-shadow .15s,border-color .15s,background .15s;-webkit-tap-highlight-color:transparent}
+.p-stat-link:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(0,0,0,.18);border-color:var(--blue)}
+.p-stat-link:active,.p-link:active{transform:translateY(0) scale(.99)}
+.p-stat-link:focus-visible,.p-link:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.p-card.p-link:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,.14);border-color:var(--blue)}
+.legend li.p-link{margin:-4px -8px;padding:4px 8px;border-radius:8px}
+.legend li.p-link:hover{background:var(--bg);transform:translateX(2px)}
+.p-tabs .p-jfclear{background:var(--blue-soft);border-color:var(--blue);color:var(--blue)}
+[data-theme="dark"] .p-tabs .p-jfclear{background:transparent;color:#93b4ff;border-color:#93b4ff}
+@media (hover:none){ .p-stat-link:hover,.p-card.p-link:hover,.legend li.p-link:hover{transform:none} }
 .p-me-menu hr{border:0;border-top:1px solid var(--line);margin:4px 2px}
 .p-page{display:none;padding:26px;animation:pagein .35s ease}
 .p-page.on{display:block}

@@ -64,4 +64,36 @@ test("employer posts a job, a student applies, the employer sees the applicant",
   // ---- employer: the applicant shows up (live, no reload) ----
   await emp.locator('#pNav [data-p="applicants"]').click();
   await expect(emp.locator("#pg_applicants")).toContainText("Applicant Lee", { timeout: 15_000 });
+
+  // ---- employer dashboard: stat cards and Job Status rows open the filtered lists ----
+  const job = emp.locator("#myJobs .my-job", { hasText: title });
+  const filterBar = emp.locator("#pJobFilter");
+  await emp.locator('#pNav [data-p="dashboard"]').click();
+  await emp.locator('.p-stat[data-jf="open"]').click();                        // Active Jobs
+  await expect(emp.locator("#pg_jobs")).toBeVisible();
+  await expect(filterBar.locator("button.on")).toHaveText("Open");
+  await expect(filterBar.locator(".p-jfclear")).toBeVisible();
+  await expect(job).toBeVisible();
+  await filterBar.locator('[data-jfset="soon"]').click();                      // no deadline → not expiring
+  await expect(job).toBeHidden();
+  await filterBar.locator(".p-jfclear").click();
+  await expect(job).toBeVisible();
+  await expect(filterBar.locator(".p-jfclear")).toHaveCount(0);
+
+  await emp.locator('#pNav [data-p="dashboard"]').click();
+  await emp.locator('.legend li[data-jf="closed"]').focus();                   // keyboard works too
+  await emp.keyboard.press("Enter");
+  await expect(filterBar.locator("button.on")).toHaveText("Closed");
+  await expect(job).toBeHidden();
+
+  await emp.locator('#pNav [data-p="dashboard"]').click();
+  await emp.locator('.p-stat[data-go="applicants"]').click();                  // Total Applications
+  await expect(emp.locator("#pg_applicants")).toContainText("Applicant Lee");
+
+  // ---- student dashboard: "In progress" opens My Applications filtered ----
+  await stu.goto("/#me"); await stu.reload();                                  // a fresh page: no "Application sent" popup
+  await stu.locator('.p-stat[data-sf="progress"]').click();
+  await expect(stu.locator("#sp_apps")).toContainText("No applications at the contacted or interview stage");
+  await stu.locator('#sp_apps [data-safset=""]').first().click();
+  await expect(stu.locator("#sp_apps .st-app")).toHaveCount(1);
 });

@@ -1,4 +1,4 @@
-import { firebaseConfig } from "./firebase-config.js?v=1796000003";
+import { firebaseConfig } from "./firebase-config.js?v=1796000004";
 
 // Korean minimum wage per hour, by year: keep in step with src/utils/pay.js (update every January)
 const MIN_WAGE_BY_YEAR = {2025:10030, 2026:10320};
@@ -138,7 +138,7 @@ async function initBackend(){
   if(!configReady()) return startLocal("Firebase isn't set up yet (fill in firebase-config.js), so accounts and jobs are saved on this device only.");
   try{
     const base = `https://www.gstatic.com/firebasejs/${FB_VERSION}/`;
-    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1796000003"),import("./wah-fb.js?v=1796000003"),import("./wah-fb.js?v=1796000003")]);
+    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1796000004"),import("./wah-fb.js?v=1796000004"),import("./wah-fb.js?v=1796000004")]);
     const app = appMod.initializeApp(firebaseConfig);
     backend.fb = {...authMod, ...fsMod};
     backend.auth = authMod.getAuth(app);
@@ -914,7 +914,9 @@ function renderDashboard(){
   $("myJobs").innerHTML = jobs.length ? jobs.map(j=>{
     const t=PAY_TYPES[j.payType]||PAY_TYPES.hourly;
     const expired = j.deadline && new Date(j.deadline+"T23:59:59")<new Date();
-    return `<div class="my-job"><div class="logo-sq" style="background:${(CATS[j.cat]||CATS.office).color};width:40px;height:40px;font-size:13px">${esc(initials(co.name||"WA"))}</div>
+    const jst = expired ? "expired" : j.status==="open" ? "open" : "closed";
+    const soon = jst==="open" && j.deadline && (new Date(j.deadline+"T23:59:59")-Date.now())<7*86400000;
+    return `<div class="my-job" data-jst="${jst}"${soon?' data-soon="1"':""}><div class="logo-sq" style="background:${(CATS[j.cat]||CATS.office).color};width:40px;height:40px;font-size:13px">${esc(initials(co.name||"WA"))}</div>
       <div class="info"><h4>${esc(j.title)}</h4><small>${esc(j.city)}${j.area?", "+esc(j.area):""} · <span style="color:${t.color};font-weight:700">${t.en}</span> ${won(j.pay)} · ${esc(j.hours)}${j.deadline?` · ${expired?"expired":"until"} ${esc(j.deadline)}`:""}</small></div>
       ${j.hiddenByAdmin?`<span class="status closed hidden-admin" title="${esc((j.hiddenInfo&&j.hiddenInfo.reason)||"")}">🛡️ ${L("Hidden by admin","관리자가 숨김")}</span>`
         :`<span class="status ${j.status==="open"&&!expired?"open":"closed"}">${j.status==="open"&&!expired?"Open":"Closed"}</span>`}
@@ -2137,7 +2139,8 @@ function buildPortal(){
       <div class="p-page" data-page="dashboard" id="pg_dashboard"></div>
       <div class="p-page" data-page="post" id="pg_post"><div class="p-head"><div><h2>${L("Post a Job","공고 등록")}</h2><p>${L("Fill in the details. Students see the visa info and minimum-wage check automatically.","내용을 입력하세요. 비자 정보와 최저임금 확인이 자동으로 표시돼요.")}</p></div></div><div class="p-two" id="pPostWrap"></div></div>
       <div class="p-page" data-page="jobs" id="pg_jobs"><div class="p-head"><div><h2>${L("My Jobs","내 공고")}</h2><p>${L("Manage all your job listings: edit, close or reopen them.","공고를 수정·마감·재오픈하세요.")}</p></div><button class="btn btn-primary" data-go="post">+ ${L("Post a New Job","새 공고")}</button></div>
-        <div class="p-filters"><label class="p-search">🔍<input id="pJobQ" placeholder="${L("Search job title…","공고 검색…")}"></label><select id="pJobS"><option value="">${L("All status","전체 상태")}</option><option value="open">Open</option><option value="closed">Closed</option></select></div><div id="pJobsWrap"></div></div>
+        <div class="p-filters"><label class="p-search">🔍<input id="pJobQ" placeholder="${L("Search job title…","공고 검색…")}"></label><input type="hidden" id="pJobS" value=""></div>
+        <div class="p-tabs p-jfbar" id="pJobFilter" role="group" aria-label="${L("Filter jobs by status","상태별 공고 필터")}"></div><div id="pJobsWrap"></div></div>
       <div class="p-page" data-page="applicants" id="pg_applicants"><div class="p-head"><div><h2>${L("Applicants","지원자")}</h2><p>${L("View and manage applications for your jobs.","지원서를 확인하고 관리하세요.")}</p></div></div>
         <div class="p-filters"><label class="p-search">🔍<input id="pAppQ" placeholder="${L("Search applicant…","지원자 검색…")}"></label><select id="pAppJ"></select><select id="pAppS"><option value="">${L("All status","전체 상태")}</option>${Object.entries(APP_STATUS).map(([k,v])=>`<option value="${k}">${v}</option>`).join("")}</select></div><div id="pAppsWrap"></div></div>
       <div class="p-page" data-page="company" id="pg_company"></div>
@@ -2152,7 +2155,15 @@ function buildPortal(){
   wrap.style.display="none";
 
   $("pNav").querySelectorAll("[data-p]").forEach(b=>b.onclick=()=>{ if(b.dataset.p==="post") startNewJob(); else setPortalPage(b.dataset.p); });
-  $("portal").addEventListener("click", e=>{ const g=e.target.closest("[data-go]"); if(!g) return; if(g.dataset.go==="post") startNewJob(); else setPortalPage(g.dataset.go); });
+  const portalGo = g => {
+    if(g.dataset.go==="post"){ startNewJob(); return; }
+    if(g.dataset.jf!==undefined){ $("pJobQ").value=""; $("pJobS").value=g.dataset.jf; }
+    if(g.dataset.af!==undefined){ portalQuery=""; $("pSearch").value=""; $("pAppQ").value=""; $("pAppJ").value=""; $("pAppS").value=""; }
+    setPortalPage(g.dataset.go);
+  };
+  $("portal").addEventListener("click", e=>{ const f=e.target.closest("[data-jfset]"); if(f){ $("pJobS").value=f.dataset.jfset; filterPortalLists(); return; }
+    const g=e.target.closest("[data-go]"); if(g) portalGo(g); });
+  $("portal").addEventListener("keydown", e=>{ if(e.key!=="Enter" && e.key!==" ") return; const g=e.target.closest('[data-go][role="button"]'); if(g){ e.preventDefault(); portalGo(g); } });
   $("pBoard").onclick=()=>{ showView("main"); window.scrollTo(0,0); };
   $("pLogout").onclick=openLogoutConfirm;
   $("pBurger").onclick=()=>$("pSide").classList.toggle("open");
@@ -2318,11 +2329,11 @@ function renderPortalDashboard(D){
   const labels=[...Array(days)].map((_,i)=>{ const d=new Date(Date.now()-(days-1-i)*86400000); return i%5===0||i===days-1 ? `${d.toLocaleString("en",{month:"short"})} ${d.getDate()}` : ""; });
   const jobT=D.jobs.map(j=>j.createdAt||0), appT=D.apps.map(a=>a.createdAt||0);
   const cards=[
-    ["💼",L("Total Jobs Posted","전체 공고"),D.jobs.length,L("All-time job listings","누적 공고"),sparkSvg(series(jobT,14,true),"#2f5bea"),"c-blue"],
-    ["🚩",L("Active Jobs","진행 중"),D.active.length,L("Currently hiring","채용 중"),sparkSvg(series(jobT,14,true),"#0f9d8a"),"c-teal"],
-    ["👥",L("Total Applications","전체 지원"),D.apps.length,L("Applications received","받은 지원서"),sparkSvg(series(appT,14,true),"#7c3aed"),"c-purple"],
-    ["⏰",L("Expiring Soon","마감 임박"),D.soon.length,L("Within 7 days","7일 이내"),sparkSvg([0,0,1,0,1,1,D.soon.length],"#ff8a3d"),"c-orange"]];
-  const parts=[{k:"Active",v:D.active.length,c:"#16a34a"},{k:"Closed",v:D.closed.length,c:"#7c3aed"},{k:"Expired",v:D.exp.length,c:"#60a5fa"}];
+    ["💼",L("Total Jobs Posted","전체 공고"),D.jobs.length,L("All-time job listings","누적 공고"),sparkSvg(series(jobT,14,true),"#2f5bea"),"c-blue",'data-go="jobs" data-jf=""',L("Show all my jobs","내 공고 전체 보기")],
+    ["🚩",L("Active Jobs","진행 중"),D.active.length,L("Currently hiring","채용 중"),sparkSvg(series(jobT,14,true),"#0f9d8a"),"c-teal",'data-go="jobs" data-jf="open"',L("Show open jobs","진행 중인 공고 보기")],
+    ["👥",L("Total Applications","전체 지원"),D.apps.length,L("Applications received","받은 지원서"),sparkSvg(series(appT,14,true),"#7c3aed"),"c-purple",'data-go="applicants" data-af=""',L("Show all applicants","전체 지원자 보기")],
+    ["⏰",L("Expiring Soon","마감 임박"),D.soon.length,L("Within 7 days","7일 이내"),sparkSvg([0,0,1,0,1,1,D.soon.length],"#ff8a3d"),"c-orange",'data-go="jobs" data-jf="soon"',L("Show jobs closing within 7 days","7일 이내 마감 공고 보기")]];
+  const parts=[{k:"Active",f:"open",v:D.active.length,c:"#16a34a"},{k:"Closed",f:"closed",v:D.closed.length,c:"#7c3aed"},{k:"Expired",f:"expired",v:D.exp.length,c:"#60a5fa"}];
   const recent=D.jobs.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).slice(0,4);
   const timeline=notifItems().slice(0,4);
   el.innerHTML = `
@@ -2330,13 +2341,13 @@ function renderPortalDashboard(D){
       <span class="p-date">📅 ${new Date().toLocaleDateString("en",{weekday:"short",month:"short",day:"numeric",year:"numeric"})}</span></div>
     <div class="p-dgrid">
       <div class="p-col">
-        <div class="p-stats">${cards.map(([i,t,v,s,sp,c],k)=>`<div class="p-stat ${c}" style="--d:${k*0.08}s"><div class="ps-top"><span class="ps-ic">${i}</span><div><small>${t}</small><b data-count="${v}">0</b></div></div><div class="ps-bot"><span>${s}</span>${sp}</div></div>`).join("")}</div>
+        <div class="p-stats">${cards.map(([i,t,v,s,sp,c,go,aria],k)=>`<div class="p-stat p-stat-link ${c}" style="--d:${k*0.08}s" ${go} role="button" tabindex="0" aria-label="${esc(aria)}: ${v}"><div class="ps-top"><span class="ps-ic">${i}</span><div><small>${t}</small><b data-count="${v}">0</b></div></div><div class="ps-bot"><span>${s}</span>${sp}</div></div>`).join("")}</div>
         <div class="p-row2">
           <div class="p-card"><div class="pc-head"><b>${L("Job Performance","지원 추이")}</b><span class="p-chip">${L("Last 30 days","최근 30일")}</span></div>
             ${D.apps.length?lineChartSvg(appS,labels):`<div class="empty" style="padding:40px">${L("No applications yet — they'll show up here as a chart.","아직 지원서가 없어요.")}</div>`}</div>
           <div class="p-card"><div class="pc-head"><b>${L("Job Status","공고 상태")}</b></div>
             <div class="donut-wrap"><div class="donut-box">${donutSvg(parts)}<div class="donut-c"><b data-count="${D.jobs.length}">0</b><small>${L("Total Jobs","전체")}</small></div></div>
-            <ul class="legend">${parts.map(p=>`<li><i style="background:${p.c}"></i>${p.k}<b>${p.v}</b></li>`).join("")}</ul></div></div>
+            <ul class="legend">${parts.map(p=>`<li class="p-link" data-go="jobs" data-jf="${p.f}" role="button" tabindex="0" aria-label="${L("Show","보기:")} ${p.k} ${L("jobs","공고")}: ${p.v}"><i style="background:${p.c}"></i>${p.k}<b>${p.v}</b></li>`).join("")}</ul></div></div>
         </div>
         <div class="p-row2">
           <div class="p-card"><div class="pc-head"><b>${L("Recent Job Listings","최근 공고")}</b><a href="#" data-go="jobs">${L("View all →","전체 보기 →")}</a></div>
@@ -2438,8 +2449,13 @@ function renderPortalSettings(D){
 function filterPortalLists(){
   if(!portalBuilt) return;
   const jq=$("pJobQ").value.trim().toLowerCase(), js=$("pJobS").value;
-  document.querySelectorAll("#myJobs .my-job").forEach(r=>{ const st=r.querySelector(".status"), open=st&&st.classList.contains("open");
-    r.style.display = (!jq || r.textContent.toLowerCase().includes(jq)) && (!js || (js==="open")===open) ? "" : "none"; });
+  const JF=[["",L("All","전체")],["open",L("Open","진행 중")],["closed",L("Closed","마감")],["expired",L("Expired","기한 만료")],["soon",L("Expiring soon","마감 임박")]];
+  const cur=JF.find(f=>f[0]===js);
+  $("pJobFilter").innerHTML = JF.map(([k,l])=>`<button type="button" data-jfset="${k}" class="${js===k?"on":""}" aria-pressed="${js===k}">${l}</button>`).join("")
+    + (js&&cur?`<button type="button" class="p-jfclear" data-jfset="" aria-label="${L("Clear filter","필터 지우기")}">${esc(cur[1])} ✕ ${L("clear","지우기")}</button>`:"");
+  document.querySelectorAll("#myJobs .my-job").forEach(r=>{ const st=r.dataset.jst;
+    const ok = !js || (js==="soon" ? r.dataset.soon==="1" : st===js);
+    r.style.display = (!jq || r.textContent.toLowerCase().includes(jq)) && ok ? "" : "none"; });
   const aq=($("pAppQ").value||portalQuery).trim().toLowerCase(), aj=$("pAppJ").value, as=$("pAppS").value;
   document.querySelectorAll("#appList .app-row").forEach(r=>{ const sel=r.querySelector(".app-status"), a=sel&&applications.find(x=>x.id===sel.dataset.app);
     r.style.display = (!aq || r.textContent.toLowerCase().includes(aq)) && (!aj || (a&&String(a.jobId)===aj)) && (!as || (a&&a.status===as)) ? "" : "none"; });
@@ -2730,7 +2746,7 @@ function watchMyApps(){
 /* ---- portal shell ---- */
 const ST_PAGES = [["home","🏠","Dashboard","대시보드"],["jobs","🎯","Recommended","추천 일자리"],["apps","📨","My Applications","내 지원"],["saved","★","Saved Jobs","저장한 공고"],
   ["hours","⏱️","Work Hours","근무 시간"],["messages","💬","Messages","메시지"],["profile","👤","My Profile","내 프로필"],["notifications","🔔","Notifications","알림"],["settings","⚙️","Settings","설정"]];
-let stPage="home", stBuilt=false;
+let stPage="home", stBuilt=false, stAppFilter="";
 function buildStudentDash(){
   if(stBuilt) return; stBuilt=true;
   document.body.insertAdjacentHTML("beforeend", `<section id="stDash"><div class="portal st-portal">
@@ -2749,11 +2765,12 @@ function buildStudentDash(){
     </div></div></section>`);
   $("sNav").querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>setStudentPage(b.dataset.s));
   $("stDash").addEventListener("click", e=>{
-    const g=e.target.closest("[data-sgo]"); if(g){ e.preventDefault(); setStudentPage(g.dataset.sgo); return; }
+    const f=e.target.closest("[data-safset]"); if(f){ stAppFilter=f.dataset.safset; renderStudentDash(); return; }
+    const g=e.target.closest("[data-sgo]"); if(g){ e.preventDefault(); setStudentPage(g.dataset.sgo, g.dataset.sf); return; }
     const j=e.target.closest("[data-job]"); if(j && !e.target.closest("button:not([data-job])")) openJob(j.dataset.job);
   });
   $("stDash").addEventListener("keydown", e=>{
-    const g=e.target.closest(".p-stat-link[data-sgo]"); if(g && (e.key==="Enter"||e.key===" ")){ e.preventDefault(); setStudentPage(g.dataset.sgo); }
+    const g=e.target.closest('[data-sgo][role="button"]'); if(g && (e.key==="Enter"||e.key===" ")){ e.preventDefault(); setStudentPage(g.dataset.sgo, g.dataset.sf); }
   });
   $("sBoard").onclick=()=>closeStudentDash();
   $("sLogout").onclick=()=>{
@@ -2787,8 +2804,8 @@ function closeStudentDash(){
   const tr=$("tracker"), anchor=$("forYou")||$("jobs"); if(tr && anchor && tr.closest("#stDash")) anchor.after(tr);
   window.scrollTo(0,0);
 }
-function setStudentPage(p){
-  stPage=p;
+function setStudentPage(p, filter){
+  stPage=p; if(p==="apps") stAppFilter=filter||"";
   document.querySelectorAll("#stDash .p-page").forEach(el=>el.classList.toggle("on", el.dataset.page===p));
   document.querySelectorAll("#sNav [data-s]").forEach(b=>b.classList.toggle("on", b.dataset.s===p));
   $("sSide").classList.remove("open");
@@ -2846,10 +2863,10 @@ function stHome(el,D){
   const pf=D.pf, S=D.S, v=S.v, comp=stCompleteness();
   const limit=v.vacation?null:v.limit, hpct=limit?Math.min(100,S.counted/limit*100):0;
   const inProg=D.apps.filter(a=>a.status==="contacted"||a.status==="interview").length;
-  const cards=[["📨",L("Applications","지원"),D.apps.length||D.appliedIds.length,L("Jobs you applied to","지원한 공고"),"c-blue","apps"],
-    ["🗣️",L("In progress","진행 중"),inProg,L("Contacted or interview","연락·면접 단계"),"c-purple","apps"],
-    ["★",L("Saved jobs","저장한 공고"),D.savedJobs.length,L("Waiting for you","관심 공고"),"c-orange","saved"],
-    ["⏱️",L("Hours this week","이번 주 근무"),S.counted,limit?L(`of ${limit} h allowed`,`허용 ${limit}시간 중`):L("Vacation — no limit","방학 — 제한 없음"),"c-teal","hours"]];
+  const cards=[["📨",L("Applications","지원"),D.apps.length||D.appliedIds.length,L("Jobs you applied to","지원한 공고"),"c-blue","apps","",L("Show all my applications","내 지원 전체 보기")],
+    ["🗣️",L("In progress","진행 중"),inProg,L("Contacted or interview","연락·면접 단계"),"c-purple","apps","progress",L("Show applications in progress","진행 중인 지원 보기")],
+    ["★",L("Saved jobs","저장한 공고"),D.savedJobs.length,L("Waiting for you","관심 공고"),"c-orange","saved","",L("Show saved jobs","저장한 공고 보기")],
+    ["⏱️",L("Hours this week","이번 주 근무"),S.counted,limit?L(`of ${limit} h allowed`,`허용 ${limit}시간 중`):L("Vacation — no limit","방학 — 제한 없음"),"c-teal","hours","",L("Open work hours","근무 시간 보기")]];
   // hours per day this week
   const perDay=[0,0,0,0,0,0,0]; S.list.forEach(s=>{ const d=(new Date(s.date+"T00:00").getDay()+6)%7; perDay[d]+=shiftHours(s); });
   const maxH=Math.max(4,...perDay), today=(new Date().getDay()+6)%7;
@@ -2864,10 +2881,10 @@ function stHome(el,D){
   el.innerHTML = `
     <div class="p-welcome"><div><h1>${L("Hi","안녕하세요")}, ${esc((pf.name||"").split(" ")[0])}! <span class="wave">👋</span></h1><p>${L("Here's your job search at a glance.","나의 구직 현황이에요.")}</p></div>
       <span class="p-date">📅 ${new Date().toLocaleDateString("en",{weekday:"short",month:"short",day:"numeric",year:"numeric"})}</span></div>
-    ${comp.pct<100?`<div class="p-card st-complete"><div class="st-cring">${matchRing(comp.pct,56,"anim")}</div><div><b>${L("Complete your profile for better matches","프로필을 완성하면 추천이 더 정확해요")}</b><small>${L("Missing:","부족한 항목:")} ${comp.missing.join(", ")}</small></div><button class="btn btn-primary btn-sm" data-sgo="profile">${L("Finish profile","프로필 완성")}</button></div>`:""}
+    ${comp.pct<100?`<div class="p-card st-complete p-link" data-sgo="profile" role="button" tabindex="0" aria-label="${L("Finish your profile","프로필 완성하기")}: ${comp.pct}%"><div class="st-cring">${matchRing(comp.pct,56,"anim")}</div><div><b>${L("Complete your profile for better matches","프로필을 완성하면 추천이 더 정확해요")}</b><small>${L("Missing:","부족한 항목:")} ${comp.missing.join(", ")}</small></div><span class="btn btn-primary btn-sm" aria-hidden="true">${L("Finish profile","프로필 완성")}</span></div>`:""}
     <div class="p-dgrid">
       <div class="p-col">
-        <div class="p-stats">${cards.map(([i,t,v2,s,c,go],k)=>`<div class="p-stat p-stat-link ${c}" style="--d:${k*0.08}s" data-sgo="${go}" role="button" tabindex="0"><div class="ps-top"><span class="ps-ic">${i}</span><div><small>${t}</small><b data-count="${v2}">0</b></div></div><div class="ps-bot"><span>${s}</span></div></div>`).join("")}</div>
+        <div class="p-stats">${cards.map(([i,t,v2,s,c,go,sf,aria],k)=>`<div class="p-stat p-stat-link ${c}" style="--d:${k*0.08}s" data-sgo="${go}"${sf?` data-sf="${sf}"`:""} role="button" tabindex="0" aria-label="${esc(aria)}: ${v2}"><div class="ps-top"><span class="ps-ic">${i}</span><div><small>${t}</small><b data-count="${v2}">0</b></div></div><div class="ps-bot"><span>${s}</span></div></div>`).join("")}</div>
         <div class="p-card"><div class="pc-head"><b>🎯 ${L("Top matches for you","나에게 맞는 공고")}</b><a href="#" data-sgo="jobs">${L("See all →","전체 보기 →")}</a></div>
           ${!(hasSchedule()||hasHome())?`<div class="fy-empty" style="padding:20px"><b>${L("Get your match %","일치율 받기")}</b><p>${L("Add your free time and home so we can rank jobs by schedule, distance and hourly pay.","가능한 시간과 집 위치를 등록하면 일정·거리·시급으로 추천해요.")}</p><button class="btn btn-primary btn-sm" id="sSetup">🗓️ ${L("Add my schedule & home","일정·집 주소 등록")}</button></div>`
             : top.length?top.map(({j,m})=>stJobRow(j,m)).join(""):`<div class="empty" style="padding:20px">${L("No matches yet.","아직 없어요.")}</div>`}</div>
@@ -2907,13 +2924,16 @@ function stJobs(el,D){
   $("sEditSched2").onclick=openScheduleModal;
 }
 function stApps(el,D){
-  const list = D.apps.length ? D.apps : D.appliedIds.map(id=>{ const j=JOBS.find(x=>x.id===id); return j?{jobId:id,jobTitle:j.title,company:j.co,status:"new",createdAt:0}:null; }).filter(Boolean);
+  const all = D.apps.length ? D.apps : D.appliedIds.map(id=>{ const j=JOBS.find(x=>x.id===id); return j?{jobId:id,jobTitle:j.title,company:j.co,status:"new",createdAt:0}:null; }).filter(Boolean);
+  const f=stAppFilter, list = f==="progress" ? all.filter(a=>a.status==="contacted"||a.status==="interview") : all;
+  const bar = all.length ? `<div class="p-tabs" role="group" aria-label="${L("Filter applications","지원 필터")}">${[["",L("All","전체")+` (${all.length})`],["progress",L("In progress","진행 중")+` (${all.filter(a=>a.status==="contacted"||a.status==="interview").length})`]].map(([k,l])=>`<button type="button" data-safset="${k}" class="${f===k?"on":""}" aria-pressed="${f===k}">${l}</button>`).join("")}${f?`<button type="button" class="p-jfclear" data-safset="" aria-label="${L("Clear filter","필터 지우기")}">${L("In progress","진행 중")} ✕ ${L("clear","지우기")}</button>`:""}</div>` : "";
   el.innerHTML = `<div class="p-head"><div><h2>📨 ${L("My Applications","내 지원 현황")}</h2><p>${L("The status updates when the employer reviews your application.","기업이 지원서를 확인하면 상태가 바뀌어요.")}</p></div></div>
+    ${bar}${f && !list.length && all.length ? `<div class="p-card empty" style="text-align:center;padding:30px">${L("No applications at the contacted or interview stage yet.","연락·면접 단계의 지원이 아직 없어요.")}</div>` : ""}
     ${list.length?list.map(a=>{ const j=JOBS.find(x=>x.id===String(a.jobId)); return `<div class="p-card st-app" data-jid="${esc(String(a.jobId))}">
       <div class="st-app-top"><div><b>${esc(a.jobTitle)}</b><small>${esc(a.company||"")}${a.createdAt?" · "+new Date(a.createdAt).toLocaleDateString():""}</small></div>${statusPill(a.status)}</div>
       ${appStepper(a.status||"new")}
       <div class="st-app-actions">${j?`<button class="btn btn-ghost btn-sm" data-job="${esc(j.id)}">${L("View job","공고 보기")}</button>`:""}${a.employerUid&&chatOn()?`<button class="btn btn-ghost btn-sm" data-chat="${esc(a.employerUid)}" data-co="${esc(a.company||"")}" data-jt="${esc(a.jobTitle||"")}">💬 ${L("Message employer","기업에 메시지")}</button>`:""}</div></div>`; }).join("")
-      :`<div class="p-card" style="text-align:center;padding:40px"><div style="font-size:44px">📨</div><b>${L("No applications yet","아직 지원한 공고가 없어요")}</b><p style="color:var(--muted);margin:6px 0 14px">${L("Your best matches are waiting.","나에게 맞는 공고가 기다려요.")}</p><button class="btn btn-primary" data-sgo="jobs">${L("See recommended jobs","추천 공고 보기")}</button></div>`}`;
+      :all.length?"":`<div class="p-card" style="text-align:center;padding:40px"><div style="font-size:44px">📨</div><b>${L("No applications yet","아직 지원한 공고가 없어요")}</b><p style="color:var(--muted);margin:6px 0 14px">${L("Your best matches are waiting.","나에게 맞는 공고가 기다려요.")}</p><button class="btn btn-primary" data-sgo="jobs">${L("See recommended jobs","추천 공고 보기")}</button></div>`}`;
   el.querySelectorAll("[data-chat]").forEach(b=>b.onclick=()=>startChat({employerUid:b.dataset.chat, studentUid:backend.uid, employerName:b.dataset.co, studentName:(account.profile||{}).name||"", jobTitle:b.dataset.jt}));
 }
 function stSaved(el,D){
