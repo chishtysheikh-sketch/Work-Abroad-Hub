@@ -5,7 +5,7 @@ services:
     name: work-abroad-hub
     runtime: node
     region: singapore              # closest Render region to Korea
-    plan: starter                  # "free" also works, but sleeps after 15 idle minutes (first visit then takes ~1 min)
+    plan: free                     # no card needed; sleeps after 15 idle minutes (upgrade to "starter" anytime in Render)
     branch: main
     autoDeployTrigger: checksPass  # deploy after the GitHub tests pass
     buildCommand: npm ci --omit=dev

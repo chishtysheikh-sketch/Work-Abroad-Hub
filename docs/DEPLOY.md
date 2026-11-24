@@ -30,7 +30,7 @@ Gmail sends about 500 emails a day. For more, use a provider such as Brevo, Rese
 3. **Apply**. The first build takes about 3 minutes. After that, `https://<name>.onrender.com/api/health` returns `{"ok":true,…}`.
 4. Every push to `main` deploys again, once the GitHub tests have passed.
 
-The plan in `render.yaml` is **Starter**, which is always on. **Free** works too, but it sleeps after 15 idle minutes and the next visit waits about a minute.
+The plan in `render.yaml` is **Free** (no card). It sleeps after 15 idle minutes and the next visit waits about a minute; switch to **Starter** in Render (Settings → Instance Type) to keep it always on.
 
 ## 4. After the first deploy
 - **Google sign-in**: in Google Cloud → Credentials → your OAuth client, add `https://<name>.onrender.com` under *Authorized JavaScript origins*.
