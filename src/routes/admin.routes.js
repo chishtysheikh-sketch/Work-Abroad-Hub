@@ -20,6 +20,7 @@ import { notify, kickUser } from "../sockets/fbLive.js";
 import { createNotification } from "../services/notify.js";
 import { sendMail, emailTemplate } from "../utils/mailer.js";
 import { env } from "../config/env.js";
+import { validBizNo, ntsStatus } from "../utils/bizno.js";
 
 const router = Router();
 const PAGE = 20;
@@ -191,13 +192,26 @@ router.get("/employers", async (req, res) => {
     status, page, pages: Math.max(1, Math.ceil(total / PAGE)), total,
     items: rows.map(r => {
       const c = r.data?.company || {}, jobs = Array.isArray(r.data?.jobs) ? r.data.jobs.filter(Boolean) : [], a = accounts.get(r.docId);
-      return { uid: r.docId, verified: c.verified === true, updatedAt: r.updatedAt,
+      return { uid: r.docId, verified: c.verified === true, updatedAt: r.updatedAt, bizValid: validBizNo(c.biz), ntsEnabled: !!env.NTS_API_KEY,
         company: { name: c.name || "", biz: c.biz || "", type: c.type || "", contact: c.contact || "", email: c.email || "",
                    phone: c.phone || "", city: c.city || "", address: c.address || "" },
         jobs: jobs.length, openJobs: jobs.filter(j => j.status === "open" && !j.hiddenByAdmin).length,
         account: a ? { email: a.email, verified: !!a.emailVerified, blocked: !!a.blocked, createdAt: a.createdAt } : null };
     }),
   });
+});
+
+// ask the National Tax Service whether the business is active (needs NTS_API_KEY)
+router.post("/employers/:uid/nts", async (req, res) => {
+  const uid = req.params.uid;
+  if (!isId(uid)) return fail(res, 400, "invalid-argument", "Bad employer id.");
+  if (!env.NTS_API_KEY) return fail(res, 400, "failed-precondition", "NTS_API_KEY is not set on the server.");
+  const posting = await FbDoc.findOne({ col: "postings", docId: uid }).select("data.company.biz").lean();
+  const biz = posting?.data?.company?.biz;
+  if (!validBizNo(biz)) return res.json({ status: "invalid", label: "Check digit is wrong: not a real number" });
+  const r = await ntsStatus(biz);
+  if (!r) return fail(res, 502, "unavailable", "The National Tax Service didn't answer. Try again later.");
+  res.json(r);
 });
 
 router.post("/employers/:uid/verify", async (req, res) => {

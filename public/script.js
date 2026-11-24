@@ -1,6 +1,9 @@
-import { firebaseConfig } from "./firebase-config.js?v=1796000002";
+import { firebaseConfig } from "./firebase-config.js?v=1796000003";
 
-const MIN_WAGE = 10320;
+// Korean minimum wage per hour, by year: keep in step with src/utils/pay.js (update every January)
+const MIN_WAGE_BY_YEAR = {2025:10030, 2026:10320};
+const MIN_WAGE = (()=>{ const y=new Date(Date.now()+9*3600e3).getUTCFullYear(), ks=Object.keys(MIN_WAGE_BY_YEAR).map(Number).filter(k=>k<=y);
+  return MIN_WAGE_BY_YEAR[y] || MIN_WAGE_BY_YEAR[ks.length?Math.max(...ks):2026]; })();
 const CATS = {
   cafe:{en:"Café & Food",ko:"카페·음식",color:"#ff5a36",bg:"#fff1ec",icon:'<path d="M4 8h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V8Z"/><path d="M17 9h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 2v3M12 2v3"/>'},
   retail:{en:"Retail & Store",ko:"매장·판매",color:"#2f5bea",bg:"#eaf0ff",icon:'<path d="M5 8h14l-1 12H6L5 8Z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>'},
@@ -135,7 +138,7 @@ async function initBackend(){
   if(!configReady()) return startLocal("Firebase isn't set up yet (fill in firebase-config.js), so accounts and jobs are saved on this device only.");
   try{
     const base = `https://www.gstatic.com/firebasejs/${FB_VERSION}/`;
-    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1796000002"),import("./wah-fb.js?v=1796000002"),import("./wah-fb.js?v=1796000002")]);
+    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1796000003"),import("./wah-fb.js?v=1796000003"),import("./wah-fb.js?v=1796000003")]);
     const app = appMod.initializeApp(firebaseConfig);
     backend.fb = {...authMod, ...fsMod};
     backend.auth = authMod.getAuth(app);
@@ -240,8 +243,16 @@ async function submitApplication(j, msg){
     message:String(msg||"").slice(0,600), status:"new", createdAt:Date.now()};
   if(j.live){
     if(backend.mode==="firebase"){
+      // confirm email (and phone, when SMS codes are on) before applying: the server refuses otherwise
+      if(needsEmailCode()){ askEmailCode(); return false; }
+      if(needsPhoneCode()){ askPhoneCode(); return false; }
       try{ await backend.fb.addDoc(backend.fb.collection(backend.db,"applications"), app); }
-      catch(e){ console.error("apply", e); toast(L("Couldn't send your application — try again.","지원서를 보내지 못했어요.")); return false; }
+      catch(e){
+        console.error("apply", e);
+        if(e && e.code==="failed-precondition"){ askEmailCode(); return false; }
+        if(e && /phone number first/.test(e.message||"")){ askPhoneCode(); return false; }
+        toast(e && e.fromServer ? e.message : L("Couldn't send your application — try again.","지원서를 보내지 못했어요.")); return false;
+      }
     } else {
       applications = [{id:"a"+Date.now().toString(36), ...app}, ...applications];
       store.set("wah_apps_local", applications);
@@ -701,6 +712,9 @@ function authNote(){
 function rowHtml(label,inner,req,errId){return `<div class="prow"><label>${label}${req?' <span class="req">*</span>':""}</label><div>${inner}${errId?`<div class="err" id="${errId}"></div>`:""}</div></div>`}
 function citySelect(name,val){return `<select name="${name}">${ALL_CITIES.filter(c=>c!=="Remote").map(c=>`<option ${c===val?"selected":""}>${c}</option>`).join("")}</select>`}
 function fieldErr(form,name,msg){const i=form.elements[name];const e=$("err_"+name);if(i)i.classList.toggle("bad",!!msg);if(e){e.textContent=msg||"";e.classList.toggle("show",!!msg)}return !msg}
+// official check digit of a Korean business registration number (same as src/utils/bizno.js)
+function validBizNo(s){ const d=String(s||"").replace(/\D/g,""); if(!/^\d{10}$/.test(d)||d==="0000000000") return false;
+  const w=[1,3,7,1,3,7,1,3,5]; let sum=0; for(let i=0;i<9;i++) sum+=+d[i]*w[i]; sum+=Math.floor(+d[8]*5/10); return (10-sum%10)%10===+d[9]; }
 const PHONE_RE=/^010-?\d{4}-?\d{4}$/, EMAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]+$/, BIZ_RE=/^\d{3}-?\d{2}-?\d{5}$/;
 
 // Does this form need to create a login (email + password) as well as the profile?
@@ -791,7 +805,7 @@ function studentForm(){
     backend.signingUp=false;
     closeModal(); renderAll();
     toast(editing?L("Profile saved","프로필이 저장됐어요"):L(`Welcome, ${account.profile.name}!`,`환영해요, ${account.profile.name}님!`));
-    if(!editing) askEmailCode();
+    if(needsEmailCode()) askEmailCode(); else if(needsPhoneCode()) askPhoneCode();
   };
 }
 function confirmSwitch(){
@@ -841,7 +855,7 @@ function employerForm(){
     const ok = [fieldErr(f,"email",EMAIL_RE.test(v("email"))?"":L("Please enter a valid email.","올바른 이메일을 입력해 주세요.")),
       checkPasswords(f),
       fieldErr(f,"name",v("name")?"":L("Please enter your company name.","상호명을 입력해 주세요.")),
-      fieldErr(f,"biz",BIZ_RE.test(v("biz"))?"":L("Enter a 10-digit business registration number (123-45-67890).","사업자등록번호 10자리를 입력해 주세요.")),
+      fieldErr(f,"biz",!BIZ_RE.test(v("biz"))?L("Enter a 10-digit business registration number (123-45-67890).","사업자등록번호 10자리를 입력해 주세요."):!validBizNo(v("biz"))?L("This business registration number isn't valid. Please check the 10 digits on your certificate.","유효하지 않은 사업자등록번호예요. 등록증의 10자리를 확인해 주세요."):""),
       fieldErr(f,"contact",v("contact")?"":L("Please enter a contact name.","담당자 이름을 입력해 주세요.")),
       fieldErr(f,"phone",/^0\d{1,2}-?\d{3,4}-?\d{4}$/.test(v("phone"))?"":L("Please enter a phone number.","연락처를 입력해 주세요."))].every(Boolean);
     if(!ok) return;
@@ -978,7 +992,7 @@ $("jobForm").onsubmit = async e=>{
   const payHours=Number(v("payHours"));
   if(type!=="hourly" && !(payHours>0)) return err(type==="daily"?"Enter how many hours per day this job is.":"Enter how many hours per week this job is.");
   const minPay=minPayFor(type,payHours);
-  if(pay<minPay) return err(`Pay is below the 2026 minimum wage. For this job it must be at least ${won(minPay)}.`);
+  if(pay<minPay) return err(`Pay is below this year's minimum wage. For this job it must be at least ${won(minPay)}.`);
   const mp=myPosting();
   if(!mp||!mp.company){ openAuth("employer"); return; }
   const p=JSON.parse(JSON.stringify(mp)); p.jobs=Array.isArray(p.jobs)?p.jobs:[];
@@ -1969,7 +1983,7 @@ function privacyHtml(){
     [L("Who else sees it","제3자 제공"), `<p>${L("When you apply to a job, the employer receives your name, email, phone, visa, Korean level, school, photo and message. Chat messages are seen by the other person in the chat. We don't sell or give your information to anyone else unless the law requires it.","지원하면 해당 기업이 이름, 이메일, 전화번호, 비자, 한국어 수준, 학교, 사진, 메시지를 받습니다. 채팅은 대화 상대가 봅니다. 법령에 따른 경우 외에는 제3자에게 제공하지 않습니다.")}</p>`],
     [L("Service providers & overseas storage","처리위탁 및 국외 이전"), `<p>${L("We use Google Firebase (Google LLC) for login, database and hosting. Your data is stored on Google's servers and may be processed outside Korea. Map tiles come from OpenStreetMap; map pages may load them from their servers.","로그인·데이터베이스·호스팅에 Google Firebase(Google LLC)를 사용하며, 데이터가 국외 서버에서 처리될 수 있습니다. 지도는 OpenStreetMap을 이용합니다.")}</p>`],
     [L("How long we keep it","보유 및 파기"), `<p>${L("We keep your information while your account exists. When you delete your account, your profile, schedule, home location, work log and (for employers) job postings are deleted right away. Applications and chat messages you already sent stay with the other person so they can keep their records.","회원 탈퇴 시 프로필, 일정, 집 위치, 근무 기록, (기업) 공고를 즉시 삭제합니다. 이미 보낸 지원서와 채팅은 상대방 기록을 위해 남습니다.")}</p>`],
-    [L("Your rights","정보주체의 권리"), ul([L("See and correct your information any time in your profile","프로필에서 언제든 열람·수정"),L("Delete your account: menu → Delete account (students) or Settings → Delete account (employers)","탈퇴: 메뉴 → 계정 삭제 / 설정 → 계정 삭제"),L(`Ask us anything about your data: ${SITE.contactEmail}`,`문의: ${SITE.contactEmail}`)])],
+    [L("Your rights","정보주체의 권리"), ul([L("See and correct your information any time in your profile","프로필에서 언제든 열람·수정"),L("Download a copy of all your data: Settings → Your data → Download my data","내 정보 다운로드: 설정 → 내 정보 → 다운로드"),L("Delete your account: menu → Delete account (students) or Settings → Delete account (employers)","탈퇴: 메뉴 → 계정 삭제 / 설정 → 계정 삭제"),L(`Ask us anything about your data: ${SITE.contactEmail}`,`문의: ${SITE.contactEmail}`)])],
     [L("How we protect it","안전성 확보 조치"), ul([L("Encrypted connection (HTTPS) and Firebase Authentication","HTTPS 암호화 및 Firebase 인증"),L("Database rules: only you can read your profile; only the student and employer can read an application or chat","DB 규칙: 프로필은 본인만, 지원서·채팅은 당사자만 열람"),L("We never see or store your password","비밀번호를 보거나 저장하지 않음")])],
     [L("Privacy officer","개인정보 보호책임자"), `<p>${esc(SITE.privacyOfficer)} · ${esc(SITE.contactEmail)}</p><p class="fine">${L("You can also contact the Personal Information Protection Commission privacy center (privacy.kisa.or.kr, call 118).","개인정보침해 신고센터(privacy.kisa.or.kr, 국번없이 118)에도 문의할 수 있어요.")}</p>`],
     [L("Changes","변경 고지"), `<p>${L("If we change this policy we will post the new version here with a new effective date.","변경 시 이 페이지에 새 시행일과 함께 공지합니다.")}</p>`]
@@ -2412,6 +2426,7 @@ function renderPortalSettings(D){
       <div class="p-setrow"><span>${L("Dark mode","다크 모드")}</span><label class="switch"><input type="checkbox" id="pSetDark" ${document.documentElement.dataset.theme==="dark"?"checked":""}><i></i></label></div>
       <div class="p-setrow"><span>${L("Language","언어")}</span><div class="lang"><button data-l="en" class="${lang==="en"?"on":""}">EN</button><button data-l="ko" class="${lang==="ko"?"on":""}">한국어</button></div></div></div>
     <div class="p-card p-set"><h3>📄 ${L("Legal","약관")}</h3><div class="p-setrow"><span><a href="#privacy">Privacy Policy</a> · <a href="#terms">Terms of Use</a></span></div></div>
+    <div class="p-card p-set"><h3>📦 ${L("Your data","내 정보")}</h3><div class="p-setrow"><span>${L("Download a copy of everything we store about you (JSON file).","저장된 내 정보 전체를 내려받습니다 (JSON 파일).")}</span><a class="btn btn-ghost btn-sm" href="/api/fb/auth/me/export" download>${L("Download my data","내 정보 다운로드")}</a></div></div>
     <div class="p-card p-set danger"><h3>⚠️ ${L("Danger zone","위험 구역")}</h3><div class="p-setrow"><span>${L("Delete your account and all your job posts.","계정과 모든 공고를 삭제합니다.")}</span><button class="btn btn-danger btn-sm" id="pSetDel">${L("Delete account","계정 삭제")}</button></div></div>`;
   $("pSetCo").onclick=()=>openAuth("employer");
   $("pSetDark").onchange=()=>{ $("themeBtn").click(); renderPortal(); };
@@ -2943,6 +2958,7 @@ function stSettings(el){
       <div class="p-setrow"><span>${L("Dark mode","다크 모드")}</span><label class="switch"><input type="checkbox" id="sSetDark" ${document.documentElement.dataset.theme==="dark"?"checked":""}><i></i></label></div>
       <div class="p-setrow"><span>${L("Language","언어")}</span><div class="lang"><button data-l="en" class="${lang==="en"?"on":""}">EN</button><button data-l="ko" class="${lang==="ko"?"on":""}">한국어</button></div></div></div>
     <div class="p-card p-set"><h3>📄 ${L("Legal","약관")}</h3><div class="p-setrow"><span><a href="#privacy">Privacy Policy</a> · <a href="#terms">Terms of Use</a></span></div></div>
+    <div class="p-card p-set"><h3>📦 ${L("Your data","내 정보")}</h3><div class="p-setrow"><span>${L("Download a copy of everything we store about you (JSON file).","저장된 내 정보 전체를 내려받습니다 (JSON 파일).")}</span><a class="btn btn-ghost btn-sm" href="/api/fb/auth/me/export" download>${L("Download my data","내 정보 다운로드")}</a></div></div>
     <div class="p-card p-set danger"><h3>⚠️ ${L("Danger zone","위험 구역")}</h3><div class="p-setrow"><span>${L("Delete your account, profile, schedule and work hours.","계정, 프로필, 일정, 근무 기록을 삭제합니다.")}</span><button class="btn btn-danger btn-sm" id="sSetDel">${L("Delete account","계정 삭제")}</button></div></div>`;
   $("sSetDark").onchange=()=>{ $("themeBtn").click(); renderStudentDash(); };
   el.querySelectorAll("[data-l]").forEach(b=>b.onclick=()=>{ document.querySelector(`.lang button[data-lang="${b.dataset.l}"]`).click(); renderStudentDash(); });
@@ -4068,6 +4084,7 @@ if("serviceWorker" in navigator && (location.protocol==="https:" || ["localhost"
   navigator.serviceWorker.addEventListener("controllerchange", ()=>{ if(PWA.userReload){ PWA.userReload=false; location.reload(); } });
   window.addEventListener("load", ()=>{
     navigator.serviceWorker.register("/sw.js").then(reg=>{
+      if(!reg) return;                                                                      // blocked (e.g. some privacy modes)
       PWA.reg = reg;
       if(reg.waiting && navigator.serviceWorker.controller) showUpdateBanner();          // already downloaded earlier
       reg.addEventListener("updatefound", ()=>{
@@ -4155,6 +4172,7 @@ function askEmailCode(){
       await window.wahAuth.verifyCode(inp.value);
       backend.user.emailVerified=true;
       closeModal(); renderAll(); toast("✅ "+L("Email confirmed. You're all set!","이메일 인증 완료!"));
+      if(needsPhoneCode()) setTimeout(askPhoneCode, 400);
     }catch(ex){ showErr(ex && ex.message || L("That code didn't work.","코드가 맞지 않아요.")); inp.select(); }
     finally{ const b=$("vcOk"); if(b) b.disabled=false; }
   };
@@ -4168,16 +4186,65 @@ function askEmailCode(){
   };
   $("vcLater").onclick=()=>{ closeModal(); renderVerifyBar(); };
 }
+const digitsOnly = s => String(s||"").replace(/\D/g,"");
+const needsPhoneCode = () => backend.mode==="firebase" && backend.user && backend.user.phoneCheck && account && !account.pending
+  && account.role==="student" && digitsOnly(account.profile && account.profile.phone) !== (backend.user.phoneVerified||"");
+function askPhoneCode(){
+  if(!needsPhoneCode()) return;
+  const phone=formatMobile((account.profile||{}).phone||"");
+  openModal(`<div class="vcode">
+    <div class="vcode-ic">📱</div>
+    <h3>${L("Confirm your phone","휴대폰 인증")}</h3>
+    <p>${L("We'll text a 6-digit code to","6자리 코드를 문자로 보낼게요:")}<br><b>${esc(phone)}</b></p>
+    <button class="btn btn-primary" id="pcSend" type="button">${L("Text me a code","코드 받기")}</button>
+    <form id="pcForm" novalidate style="display:none">
+      <input id="pcInput" class="vcode-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" aria-label="${L("6-digit code","6자리 코드")}">
+      <div class="err" id="pcErr"></div>
+      <button class="btn btn-primary" id="pcOk" type="submit">${L("Confirm phone","인증하기")}</button>
+    </form>
+    <div class="vcode-links"><button class="back-link" id="pcEdit">${L("Wrong number? Edit profile","번호가 틀렸나요? 프로필 수정")}</button><span>·</span><button class="back-link" id="pcLater">${L("Later","나중에")}</button></div>
+    <small>${L("Employers call this number about your applications. You can apply once it's confirmed.","기업이 지원 관련해 이 번호로 연락해요. 인증 후 지원할 수 있어요.")}</small>
+  </div>`,"auth-modal");
+  const form=$("pcForm"), inp=$("pcInput"), err=$("pcErr");
+  const showErr=m=>{ err.textContent=m||""; err.classList.toggle("show",!!m); inp.classList.toggle("bad",!!m); };
+  $("pcSend").onclick=async ()=>{
+    const b=$("pcSend"); b.disabled=true;
+    try{
+      const r=await window.wahAuth.sendPhoneCode();
+      if(r && r.alreadyVerified){ backend.user.phoneVerified=digitsOnly(phone); closeModal(); renderAll(); toast("✅ "+L("Phone already confirmed.","이미 인증됐어요.")); return; }
+      form.style.display=""; b.textContent=L("Send a new code","새 코드 받기"); inp.focus();
+      toast(L("Code sent by text message.","문자로 코드를 보냈어요."));
+    }catch(ex){ form.style.display=""; showErr(ex && ex.message || L("Couldn't send the text.","문자를 보내지 못했어요.")); }
+    finally{ setTimeout(()=>{ const x=$("pcSend"); if(x) x.disabled=false; }, 60000); }
+  };
+  inp.oninput=()=>{ inp.value=inp.value.replace(/\D/g,"").slice(0,6); showErr(""); if(inp.value.length===6) form.requestSubmit(); };
+  form.onsubmit=async e=>{
+    e.preventDefault();
+    if(inp.value.length!==6){ showErr(L("Enter the 6-digit code from the text message.","문자의 6자리 코드를 입력하세요.")); return; }
+    $("pcOk").disabled=true;
+    try{ const r=await window.wahAuth.verifyPhoneCode(inp.value);
+      backend.user.phoneVerified=(r&&r.phoneVerified)||digitsOnly(phone);
+      closeModal(); renderAll(); toast("✅ "+L("Phone confirmed!","휴대폰 인증 완료!"));
+    }catch(ex){ showErr(ex && ex.message || L("That code didn't work.","코드가 맞지 않아요.")); inp.select(); }
+    finally{ const b=$("pcOk"); if(b) b.disabled=false; }
+  };
+  $("pcEdit").onclick=()=>{ closeModal(); studentForm(); };
+  $("pcLater").onclick=()=>{ closeModal(); renderVerifyBar(); };
+}
 function renderVerifyBar(){
   let bar=$("verifyBar");
-  if(!needsEmailCode()){ if(bar) bar.remove(); return; }
+  const email=needsEmailCode(), phone=!email && needsPhoneCode();
+  if(!email && !phone){ if(bar) bar.remove(); return; }
   if(!bar){
     bar=document.createElement("div"); bar.id="verifyBar"; bar.setAttribute("role","status");
     document.body.prepend(bar);
   }
-  bar.innerHTML=`<span>⚠️ ${L("Confirm your email","이메일을 인증하세요")} <b>${esc(backend.user.email||"")}</b>. ${L("Until then you can't apply, post jobs or chat.","인증 전에는 지원·공고 등록·채팅이 안 돼요.")}</span><button class="btn btn-sm btn-primary" id="vbOpen">${L("Enter code","코드 입력")}</button>`;
-  $("vbOpen").onclick=askEmailCode;
+  bar.innerHTML = email
+    ? `<span>⚠️ ${L("Confirm your email","이메일을 인증하세요")} <b>${esc(backend.user.email||"")}</b>. ${L("Until then you can't apply, post jobs or chat.","인증 전에는 지원·공고 등록·채팅이 안 돼요.")}</span><button class="btn btn-sm btn-primary" id="vbOpen">${L("Enter code","코드 입력")}</button>`
+    : `<span>📱 ${L("Confirm your phone","휴대폰을 인증하세요")} <b>${esc(formatMobile((account.profile||{}).phone||""))}</b> ${L("to apply for jobs.","인증 후 지원할 수 있어요.")}</span><button class="btn btn-sm btn-primary" id="vbOpen">${L("Confirm phone","휴대폰 인증")}</button>`;
+  $("vbOpen").onclick = email ? askEmailCode : askPhoneCode;
 }
+window.addEventListener("wah-user-refreshed", ()=>{ renderVerifyBar(); if(!needsEmailCode() && $("vcInput")) closeModal(); });
 const _renderAllVB = renderAll;
 renderAll = function(){ _renderAllVB(); renderVerifyBar(); };
 // the email's one-click link lands on /?verified=1 (or =expired)

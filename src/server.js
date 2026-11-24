@@ -5,8 +5,8 @@ import { Server } from "socket.io";
 import { logger } from "./utils/logger.js";
 import app from "./app.js";
 import { connectDB } from "./config/db.js";
-import { registerChat } from "./sockets/chat.js";
 import { registerFbLive } from "./sockets/fbLive.js";
+import { minWageWarning } from "./utils/pay.js";
 
 // P11: a bug nobody caught → write WHAT happened (with the stack) and stop. A process manager / host
 // (or nodemon in development) starts a fresh, clean server; carrying on in an unknown state is worse.
@@ -27,7 +27,6 @@ try {
 const server = http.createServer(app);
 const io = new Server(server);
 app.set("io", io);
-registerChat(io);      // chat-test.html (Part 8)
 registerFbLive(io);    // live updates for the real website (Part 10)
 
 server.on("error", err => {
@@ -37,7 +36,10 @@ server.on("error", err => {
   }
   crash("server error", err);
 });
-server.listen(env.PORT, () => logger.info(`🚀 Server running: http://localhost:${env.PORT}`));
+server.listen(env.PORT, () => {
+  logger.info(`🚀 Server running: http://localhost:${env.PORT}`);
+  const w = minWageWarning(); if (w) logger.warn(w);
+});
 
 // P11: graceful shutdown (Ctrl+C, or SIGTERM from the host when it restarts / deploys):
 // 1. stop accepting new connections and close every live socket (requests already running may finish)

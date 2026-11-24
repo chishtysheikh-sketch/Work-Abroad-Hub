@@ -21,8 +21,33 @@ for (const k of SECRET_KEYS) {
   for (const prefix of ["", "*", "*.*", "*.*.*"]) redactPaths.push(join(prefix));
 }
 
+// Alerts: every error / fatal log line is also posted to ALERT_WEBHOOK_URL (Slack or Discord), if set.
+// Throttled: the same message at most once per 10 minutes, and at most 20 alerts an hour in total;
+// the next alert says how many were held back. Never in tests.
+const ALERT_URL = process.env.NODE_ENV === "test" ? "" : (process.env.ALERT_WEBHOOK_URL || "");
+const alertSeen = new Map();          // message → last time sent
+let alertWindow = { start: 0, sent: 0, held: 0 };
+function alert(args, lvl) {
+  if (!ALERT_URL) return;
+  const obj = args[0] && typeof args[0] === "object" ? args[0] : {};
+  const msg = String((typeof args[0] === "string" ? args[0] : args[1]) || obj.err?.message || obj.message || "error").slice(0, 300);
+  const now = Date.now();
+  if (now - alertWindow.start > 3600_000) alertWindow = { start: now, sent: 0, held: alertWindow.held };
+  if (now - (alertSeen.get(msg) || 0) < 600_000 || alertWindow.sent >= 20) { alertWindow.held++; return; }
+  alertSeen.set(msg, now); alertWindow.sent++;
+  if (alertSeen.size > 500) alertSeen.clear();
+  const held = alertWindow.held; alertWindow.held = 0;
+  const where = process.env.APP_URL || "server";
+  const err = obj.err instanceof Error ? `${obj.err.name}: ${obj.err.message}` : "";
+  const text = `${lvl >= 60 ? "💥 FATAL" : "🔴 Error"} on ${where}\n${msg}${err && !msg.includes(obj.err.message) ? "\n" + err : ""}` +
+               `${obj.reqId ? `\nrequest: ${obj.reqId}` : ""}${held ? `\n(+${held} more held back)` : ""}`;
+  fetch(ALERT_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, content: text }),
+                     signal: AbortSignal.timeout(5000) }).catch(() => {});      // an alert must never cause another error
+}
+
 const options = {
   level,
+  hooks: { logMethod(args, method, lvl) { if (lvl >= 50) alert(args, lvl); return method.apply(this, args); } },
   base: isProdLog ? { pid: process.pid } : undefined,     // no pid/hostname noise while developing
   redact: { paths: redactPaths, censor: "[hidden]" },
   // "code" is a hidden field name (Google sign-in codes), so an error's own code (E11000, EADDRINUSE…) is kept as errCode

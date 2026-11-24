@@ -13,6 +13,8 @@ import { validatePassword } from "../utils/password.js";
 import { passwordLogin, checkPassword, logFailedLogin, BCRYPT_COST } from "../utils/login.js";
 import { checkEmail, normalizeEmail } from "../utils/email.js";
 import { sendMail, emailTemplate } from "../utils/mailer.js";
+import { sendSms, smsMode } from "../utils/sms.js";
+import { MOBILE_RE } from "../fb/rules.js";
 import { env, googleEnabled } from "../config/env.js";
 import { OAuth2Client } from "google-auth-library";
 import { readDoc, runQuery, writeDoc, parsePath, FbError } from "../fb/core.js";
@@ -28,6 +30,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const fail = (res, status, code, error, extra) => res.status(status).json({ code, error, ...extra, requestId: res.req?.id });
 const shape = u => ({ uid: String(u._id), email: u.email, displayName: u.name || "", emailVerified: !!u.emailVerified,
+                     phoneVerified: u.phoneVerified || "", phoneCheck: smsMode !== "off",
                      isAdmin: u.isAdmin === true });   // P9: only shows/hides the "🛡️ Admin" link; the API checks the DB itself
 
 // who is calling? (null = logged out, logged out everywhere, blocked or deleted)
@@ -170,6 +173,62 @@ const checkLimiter = limiter(15 * 60 * 1000, 60, "auth/too-many-requests", "Too 
 router.post("/auth/check-email", checkLimiter, async (req, res) => {
   const bad = await checkEmail(normalizeEmail(req.body?.email));
   res.json(bad ? { ok: false, error: bad } : { ok: true });
+});
+
+// ---------- phone confirmation by SMS (only when smsMode isn't "off") ----------
+const digitsOf = s => String(s ?? "").replace(/\D/g, "");
+async function profilePhone(uid) {
+  const doc = await FbDoc.findOne({ col: "users", docId: uid }).select("data.profile.phone").lean();
+  return digitsOf(doc?.data?.profile?.phone);
+}
+async function phoneConfirmed(uid) {
+  const [u, phone] = await Promise.all([User.findById(uid).select("phoneVerified").lean(), profilePhone(uid)]);
+  return !!(u && phone && u.phoneVerified === phone);
+}
+const phoneLimiter = limiter(15 * 60 * 1000, 20, "auth/too-many-requests", "Too many tries. Wait a moment.", "phoneLimiter");
+
+// texts a code to the phone on the student's profile: max 1 per minute and 5 per day
+router.post("/auth/phone/send", phoneLimiter, async (req, res) => {
+  if (smsMode === "off") return fail(res, 400, "failed-precondition", "Phone codes are switched off.");
+  const uid = await uidOf(req);
+  if (!uid) return fail(res, 401, "auth/requires-recent-login", "Please log in.");
+  const phone = await profilePhone(uid);
+  if (!MOBILE_RE.test(phone)) return fail(res, 400, "invalid-argument", "Save a mobile number that starts with 010 on your profile first.");
+  const user = await User.findById(uid).select("+phoneCodeSentAt +phoneCodeCount +phoneCodeDay phoneVerified");
+  if (!user) return fail(res, 401, "auth/requires-recent-login", "Please log in.");
+  if (user.phoneVerified === phone) return res.json({ ok: true, alreadyVerified: true });
+  if (user.phoneCodeSentAt && Date.now() - user.phoneCodeSentAt < 60 * 1000)
+    return fail(res, 429, "auth/too-many-requests", "Please wait a minute before asking for another code.");
+  const count = user.phoneCodeDay === today() ? (user.phoneCodeCount || 0) : 0;
+  if (count >= 5) return fail(res, 429, "auth/too-many-requests", "You can get 5 codes a day. Please try again tomorrow.");
+  const code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
+  await User.updateOne({ _id: uid }, { $set: { phonePending: phone, phoneCodeHash: codeHash(phone, code), phoneCodeExp: new Date(Date.now() + 5 * 60 * 1000),
+    phoneCodeTries: 0, phoneCodeSentAt: new Date(), phoneCodeCount: count + 1, phoneCodeDay: today() } });
+  const r = await sendSms(phone, `[Work Abroad Hub] Your code is ${code}. It works for 5 minutes.`);
+  if (r.failed) return fail(res, 502, "unavailable", "We couldn't send the text right now. Please try again later.");
+  res.json({ ok: true, to: `${phone.slice(0, 3)}-****-${phone.slice(-4)}` });
+});
+
+router.post("/auth/phone/verify", codeLimiter, async (req, res) => {
+  const uid = await uidOf(req);
+  if (!uid) return fail(res, 401, "auth/requires-recent-login", "Please log in.");
+  const code = digitsOf(req.body?.code);
+  if (code.length !== 6) return fail(res, 400, "auth/invalid-code", "Enter the 6-digit code from the text message.");
+  const user = await User.findById(uid).select("+phonePending +phoneCodeHash +phoneCodeExp +phoneCodeTries");
+  if (!user) return fail(res, 401, "auth/requires-recent-login", "Please log in.");
+  if (!user.phoneCodeHash || !user.phoneCodeExp || user.phoneCodeExp < new Date())
+    return fail(res, 400, "auth/code-expired", "This code has expired. Press \"Send a new code\".");
+  if ((user.phoneCodeTries || 0) >= CODE_TRIES) return fail(res, 400, "auth/code-expired", "Too many wrong codes. Press \"Send a new code\".");
+  const a = Buffer.from(codeHash(user.phonePending, code)), b = Buffer.from(user.phoneCodeHash);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    const tries = (user.phoneCodeTries || 0) + 1;
+    await User.updateOne({ _id: uid }, { $set: { phoneCodeTries: tries } });
+    const left = CODE_TRIES - tries;
+    return fail(res, 400, "auth/invalid-code", left > 0 ? `Wrong code. ${left} ${left === 1 ? "try" : "tries"} left.` : "Too many wrong codes. Press \"Send a new code\".");
+  }
+  await User.updateOne({ _id: uid }, { $set: { phoneVerified: user.phonePending },
+    $unset: { phonePending: 1, phoneCodeHash: 1, phoneCodeExp: 1, phoneCodeTries: 1 } });
+  res.json({ ok: true, phoneVerified: user.phonePending });
 });
 
 // ---------- P6: Google sign-in ----------
@@ -347,9 +406,44 @@ router.post("/auth/logout-all", async (req, res) => {
 
 router.get("/auth/me", async (req, res) => {
   const t = await checkToken(req.cookies?.[COOKIE_NAME]);
-  const user = t && await User.findById(t.id).select("email name emailVerified isAdmin").lean();   // P10: only what shape() needs
+  const user = t && await User.findById(t.id).select("email name emailVerified phoneVerified isAdmin").lean();   // P10: only what shape() needs
   if (!user) { if (req.cookies?.[COOKIE_NAME]) clearAuthCookie(res); return res.json({ user: null }); }
   res.json({ user: shape(user) });
+});
+
+// "Download my data" (Korean privacy law, PIPA: the right to see your data): one JSON file with
+// the account, profile, company + jobs, applications, chats with their messages, and notifications.
+const exportLimiter = limiter(60 * 60 * 1000, 5, "resource-exhausted", "You can download your data 5 times an hour.", "exportLimiter");
+router.get("/auth/me/export", exportLimiter, async (req, res) => {
+  const uid = await uidOf(req);
+  if (!uid) return fail(res, 401, "auth/requires-recent-login", "Please log in.");
+  const user = await User.findById(uid).lean();
+  if (!user) return fail(res, 401, "auth/requires-recent-login", "Please log in.");
+  const mine = { $or: [{ "data.studentUid": uid }, { "data.employerUid": uid }] };
+  const [profile, posting, applications, chats, notifications] = await Promise.all([
+    FbDoc.findOne({ col: "users", docId: uid }).lean(),
+    FbDoc.findOne({ col: "postings", docId: uid }).lean(),
+    FbDoc.find({ col: "applications", ...mine }).sort({ docId: 1 }).lean(),
+    FbDoc.find({ col: "chats", ...mine }).sort({ docId: 1 }).lean(),
+    Notification.find({ user: uid }).sort({ createdAt: 1 }).lean(),
+  ]);
+  const messages = chats.length
+    ? await FbDoc.find({ col: { $in: chats.map(c => `chats/${c.docId}/messages`) } }).sort({ col: 1, "data.at": 1 }).lean() : [];
+  const byChat = new Map();
+  for (const m of messages) { const id = m.col.split("/")[1]; if (!byChat.has(id)) byChat.set(id, []); byChat.get(id).push({ id: m.docId, ...m.data }); }
+  const out = {
+    exportedAt: new Date().toISOString(),
+    account: { email: user.email, name: user.name, role: user.role, emailVerified: !!user.emailVerified, phoneVerified: user.phoneVerified || "",
+               signInWithGoogle: !!user.googleSub, createdAt: user.createdAt, lastLoginAt: user.lastLoginAt, agreedAt: user.agreedAt },
+    profile: profile?.data || null,
+    company: posting?.data || null,
+    applications: applications.map(a => ({ id: a.docId, ...a.data })),
+    chats: chats.map(c => ({ id: c.docId, ...c.data, messages: byChat.get(c.docId) || [] })),
+    notifications: notifications.map(n => ({ type: n.type, title: n.title, body: n.body, read: !!n.read, createdAt: n.createdAt })),
+  };
+  res.set("Content-Disposition", `attachment; filename="work-abroad-hub-my-data-${today()}.json"`);
+  res.set("Cache-Control", "no-store");
+  res.type("application/json").send(JSON.stringify(out, null, 2));
 });
 
 router.delete("/auth/me", async (req, res) => {
@@ -393,7 +487,11 @@ router.post("/write", writeLimiter, async (req, res) => {
     const me = await User.findById(uid).select("email").lean();
     if (me) data.profile.email = me.email;
   }
-  const out = await writeDoc({ op, path, data, merge: !!merge }, uid, { verified: !!(t && t.verified) });
+  const ctx = { verified: !!(t && t.verified) };
+  // phone codes switched on → a student applies only with the phone on their profile confirmed by SMS
+  if (uid && smsMode !== "off" && (op === "set" || op === "add") && typeof path === "string" && /^applications(\/|$)/.test(path))
+    ctx.phoneOk = await phoneConfirmed(uid);
+  const out = await writeDoc({ op, path, data, merge: !!merge }, uid, ctx);
 
   // keep the login account's role/name in step with the website profile
   if (out.col === "users" && out.data && out.id === uid) {

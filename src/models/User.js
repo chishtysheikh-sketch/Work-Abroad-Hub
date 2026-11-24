@@ -30,6 +30,14 @@ const userSchema = new Schema({
   emailCodeExp:      { type: Date, select: false },     // the code works for 30 minutes
   emailCodeTries:    { type: Number, default: 0, select: false },   // wrong codes; 5 → ask for a new email
   emailVerifySentAt: Date,
+  phoneVerified:     String,                              // digits of the phone confirmed by SMS code ("" / missing = none)
+  phonePending:      { type: String, select: false },   // digits the last code was sent to
+  phoneCodeHash:     { type: String, select: false },
+  phoneCodeExp:      { type: Date, select: false },     // 5 minutes
+  phoneCodeTries:    { type: Number, default: 0, select: false },
+  phoneCodeSentAt:   { type: Date, select: false },
+  phoneCodeCount:    { type: Number, default: 0, select: false },   // texts sent today (max 5)
+  phoneCodeDay:      { type: String, select: false },
   emailVerifyCount:  { type: Number, default: 0 },      // emails sent today (max 5)
   emailVerifyDay:    String,                            // "YYYY-MM-DD" of that count
   resetHash:         { type: String, select: false },   // sha256 of the password-reset token
@@ -52,6 +60,8 @@ userSchema.methods.toPublic = function () {
   delete u.failedLogins; delete u.lockUntil; delete u.emailVerifyCount; delete u.emailVerifyDay;
   delete u.resetHash; delete u.resetExp; delete u.googleSub; delete u.isAdmin;
   delete u.emailCodeHash; delete u.emailCodeExp; delete u.emailCodeTries;
+  delete u.phonePending; delete u.phoneCodeHash; delete u.phoneCodeExp; delete u.phoneCodeTries;
+  delete u.phoneCodeSentAt; delete u.phoneCodeCount; delete u.phoneCodeDay;
   if (u.role !== "student") delete u.student;
   if (u.role !== "employer") delete u.company;
   u.id = String(u._id);

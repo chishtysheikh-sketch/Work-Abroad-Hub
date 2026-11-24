@@ -164,7 +164,8 @@
         <div class="list">${d.items.length ? d.items.map(e => `<div class="row">
           <div class="main"><div class="t">${esc(e.company.name)} ${e.verified ? `<span class="tag ok">✓ verified</span>` : ""}</div>
             <div class="s">${esc([e.company.city, e.company.address].filter(Boolean).join(", "))}</div>
-            <dl><div><dt>Business no.</dt><dd>${esc(e.company.biz || "—")}</dd></div><div><dt>Contact</dt><dd>${esc(e.company.contact || "—")}</dd></div>
+            <dl><div><dt>Business no.</dt><dd>${esc(e.company.biz || "—")} ${e.company.biz ? (e.bizValid ? `<span class="tag ok">check digit OK</span>` : `<span class="tag bad">invalid number</span>`) : ""}
+              ${e.ntsEnabled && e.bizValid ? `<button class="btn ghost sm" type="button" data-act="nts" data-uid="${esc(e.uid)}">Check with NTS</button><span class="nts" id="nts_${esc(e.uid)}"></span>` : ""}</dd></div><div><dt>Contact</dt><dd>${esc(e.company.contact || "—")}</dd></div>
               <div><dt>Email / phone</dt><dd>${esc([e.company.email, e.company.phone].filter(Boolean).join(" · ") || "—")}</dd></div>
               <div><dt>Account</dt><dd>${e.account ? `${esc(e.account.email)} ${e.account.verified ? "" : "(email not verified)"} ${e.account.blocked ? "⛔ blocked" : ""}` : "(deleted)"}</dd></div>
               <div><dt>Jobs</dt><dd>${num(e.openJobs)} open / ${num(e.jobs)}</dd></div><div><dt>Updated</dt><dd>${date(e.updatedAt)}</dd></div></dl></div>
@@ -245,6 +246,12 @@
     } else if (a === "unblock") {
       const r = await ask({ title: "Unblock this user?", text: `${D.email} can log in again. They get an email. Jobs hidden by the block come back; jobs you hid on purpose stay hidden.`, ok: "Unblock" });
       if (r) run(async () => { const d = await api(`/admin/users/${D.id}/block`, { blocked: false }); if (d.jobsRestored) setTimeout(() => toast(`${d.jobsRestored} job(s) back on the board`), 3100); }, "User unblocked");
+    } else if (a === "nts") {
+      const out = document.getElementById("nts_" + D.uid); out.textContent = " checking…"; btn.disabled = true;
+      api(`/admin/employers/${D.uid}/nts`, {}).then(r => {
+        const txt = { active: "✅ active business", suspended: "⏸ suspended", closed: "⛔ closed", invalid: "⛔ invalid number", unknown: "❓ not registered" }[r.status] || r.status;
+        out.textContent = ` ${txt}${r.label ? " (" + r.label + ")" : ""}`;
+      }).catch(err => { out.textContent = " " + (err.message || "lookup failed"); }).finally(() => { btn.disabled = false; });
     } else if (a === "verify" || a === "unverify") {
       const on = a === "verify";
       const r = await ask({ title: on ? "Verify this employer?" : "Remove verification?", ok: on ? "✓ Verify" : "Remove",

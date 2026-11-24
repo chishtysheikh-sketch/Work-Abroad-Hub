@@ -1,14 +1,17 @@
 {
   "name": "work-abroad-hub-server",
   "version": "1.0.0",
-  "description": "",
+  "description": "Work Abroad Hub: part-time jobs for international students in Korea (server + website)",
   "main": "src/server.js",
   "scripts": {
     "test": "vitest run",
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
     "mail:test": "node scripts/mail-test.js",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js"
   },
   "keywords": [],
   "author": "",
@@ -18,8 +21,8 @@
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.2",
     "cookie-parser": "^1.4.7",
-    "cors": "^2.8.6",
     "dotenv": "^18.0.10",
+    "esbuild": "^0.28.2",
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.5",
     "google-auth-library": "^11.3.4",
@@ -35,6 +38,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.1",
     "autocannon": "^9.0.0",
     "mongodb-memory-server": "^11.4.0",
     "nodemon": "^3.1.14",
@@ -42,5 +46,8 @@
     "socket.io-client": "^4.8.4",
     "supertest": "^7.3.2",
     "vitest": "^5.1.1"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

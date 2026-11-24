@@ -25,6 +25,16 @@ const schema = z.object({
   GOOGLE_CLIENT_SECRET: optional(z.string().trim().min(10, "looks too short (it usually starts with GOCSPX-)")),
   // P11: how much to log: fatal | error | warn | info (default) | debug | trace
   LOG_LEVEL: optional(z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])),
+  // National Tax Service business-status lookup (optional, data.go.kr "국세청_사업자등록정보 진위확인 및 상태조회").
+  // Without it, business numbers are still checked with their check digit.
+  NTS_API_KEY: optional(z.string().trim().min(10)),
+  // SMS codes for student phones (optional, Solapi / CoolSMS). Without them, phones are only format-checked
+  // (development prints the code in the console).
+  SOLAPI_API_KEY:    optional(z.string().trim()),
+  SOLAPI_API_SECRET: optional(z.string().trim()),
+  SMS_FROM:          optional(z.string().trim().regex(/^0\d{8,10}$/, "must be the registered sender number, digits only (e.g. 0212345678)")),
+  // Alerts (optional): a Slack or Discord webhook URL that gets a message when the server logs an error
+  ALERT_WEBHOOK_URL: optional(z.url()),
 });
 
 const result = schema.safeParse(process.env);
@@ -40,3 +50,15 @@ export const env = result.data;
 process.env.NODE_ENV = env.NODE_ENV;
 export const isProd = env.NODE_ENV === "production";
 export const googleEnabled = !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
+export const smsEnabled = !!(env.SOLAPI_API_KEY && env.SOLAPI_API_SECRET && env.SMS_FROM);
+
+// production: things that would silently break the live site
+if (isProd) {
+  const problems = [];
+  if (!(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS)) problems.push("SMTP_HOST / SMTP_USER / SMTP_PASS: needed, or nobody can confirm their email");
+  if (!env.APP_URL.startsWith("https://")) problems.push("APP_URL: must be the real https:// address (it goes into email links)");
+  if (problems.length) {
+    logger.fatal("❌ Production settings are incomplete:\n" + problems.map(p => "   - " + p).join("\n"));
+    process.exit(1);
+  }
+}

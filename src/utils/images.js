@@ -1,6 +1,6 @@
 // P7: images (profile photos, company logos) are stored as files in MongoDB GridFS,
 // bucket "images". Documents only keep a short URL: /api/files/<id>.
-// Used by routes/files.routes.js, the account-delete route and scripts/migrate-images.js.
+// Used by routes/files.routes.js and the account-delete route.
 import mongoose from "mongoose";
 import sharp from "sharp";
 

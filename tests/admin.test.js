@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { describe, it, expect } from "vitest";
 import { client, signup, employerWithJobs, job, makeAdmin, PASSWORD } from "./helpers.js";
 
@@ -35,18 +36,21 @@ describe("admin panel API", () => {
     const a = await admin();
     const e = await employerWithJobs([job("j1"), job("j2", { status: "closed" }), job("j3")]);
     await a.agent.post(`/api/admin/jobs/${e.uid}/j3/hide`).send({ hidden: true, reason: "fake job" });   // hidden on purpose
-    expect(await boardJobs(e.uid)).toEqual(["j1:open", "j2:closed"]);
+    expect(await boardJobs(e.uid)).toEqual(["j1:open"]);                          // the board shows only open jobs
 
     const b = await a.agent.post(`/api/admin/users/${e.uid}/block`).send({ blocked: true, reason: "scam" });
     expect(b.body).toMatchObject({ ok: true, blocked: true, jobsHidden: 1 });
     expect((await e.agent.get("/api/fb/auth/me")).body.user).toBeNull();           // same cookie, logged out
-    expect(await boardJobs(e.uid)).toEqual(["j2:closed"]);
+    expect(await boardJobs(e.uid)).toEqual([]);
     const login = await (await client()).post("/api/fb/auth/login").send({ email: e.email, password: PASSWORD });
     expect(login.status).toBe(403);
 
     const u = await a.agent.post(`/api/admin/users/${e.uid}/block`).send({ blocked: false });
     expect(u.body).toMatchObject({ ok: true, blocked: false, jobsRestored: 1 });
-    expect(await boardJobs(e.uid)).toEqual(["j1:open", "j2:closed"]);              // j3 stays hidden
+    expect(await boardJobs(e.uid)).toEqual(["j1:open"]);                          // j3 stays hidden
+    // the employer's own copy still has everything: j2 still closed (not reopened), j3 still hidden
+    const own = await mongoose.connection.collection("fbdocs").findOne({ col: "postings", docId: e.uid });
+    expect(own.data.jobs.map(j => `${j.id}:${j.status}${j.hiddenByAdmin ? ":hidden" : ""}`)).toEqual(["j1:open", "j2:closed", "j3:closed:hidden"]);
     expect((await (await client()).post("/api/fb/auth/login").send({ email: e.email, password: PASSWORD })).status).toBe(200);
   });
 

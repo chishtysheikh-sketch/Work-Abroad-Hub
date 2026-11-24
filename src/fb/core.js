@@ -70,10 +70,15 @@ export function requestLoader() {
 export const isPublicCol = col => col === "postings";
 
 // P9: jobs an admin hid are only visible to their own employer (in their dashboard)
+// Everyone else sees only the jobs on the board: open, not past their deadline, not hidden by an admin.
+// (The website shows nothing else; closed / expired jobs were sent and thrown away. The owner still gets everything.)
+const koreaToday = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
 export function visible(col, id, data, uid) {
   if (col !== "postings" || !data || !Array.isArray(data.jobs) || uid === id) return data;
-  if (!data.jobs.some(j => j && j.hiddenByAdmin)) return data;
-  return { ...data, jobs: data.jobs.filter(j => !(j && j.hiddenByAdmin)) };
+  const today = koreaToday();
+  const onBoard = j => j && j.status === "open" && !j.hiddenByAdmin && !(typeof j.deadline === "string" && j.deadline && j.deadline < today);
+  if (data.jobs.every(onBoard)) return data;
+  return { ...data, jobs: data.jobs.filter(onBoard) };
 }
 
 // P9: admin-only fields. Whatever the website sends, the stored value is kept.

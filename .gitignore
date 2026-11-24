@@ -8,4 +8,6 @@ node_modules/
 backups/
 uploads/
 coverage/
-.backup-before-part10/
+e2e/.server.log
+test-results/
+playwright-report/

@@ -51,3 +51,19 @@ Do this if the secret may have leaked (shown in a screenshot, committed by mista
 
 **Everyone is logged out once**. That is expected: old cookies were signed with the old secret.
 The server refuses to start if `JWT_SECRET` is shorter than 32 characters.
+
+## Real email, real phone, real business
+- **Email ownership**: after sign-up a 6-digit code (30 minutes, 5 wrong tries) and a link (24 hours) are emailed.
+  Until one is used, the server refuses applying, publishing jobs and chatting. Only hashes of the code and link are stored.
+- **Sign-up email check**: misspelled domains, temporary-inbox services and domains without a mail server are refused, live on the form and again on the server.
+- **Profile email** on a student profile is always the confirmed login email (the server overwrites anything else).
+- **Phones**: students must give a Korean mobile number (`010-XXXX-XXXX`). With SMS set up (`SOLAPI_*`), they must also confirm it with a texted code before applying.
+- **Business numbers** must pass the official check digit. With `NTS_API_KEY`, admins can ask the National Tax Service whether the business is active.
+
+## Backups
+`scripts/backup.js` writes every collection into one file encrypted with AES-256-GCM (key from `BACKUP_PASSPHRASE` via scrypt).
+Without the passphrase the file can't be read, so keep it in a password manager. The daily GitHub workflow keeps 30 days of backups.
+
+## Alerts
+With `ALERT_WEBHOOK_URL` set, every error log line is also posted to Slack or Discord, throttled to the same message
+once per 10 minutes and 20 alerts an hour. Log messages never contain passwords, codes or raw emails.

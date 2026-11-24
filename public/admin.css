@@ -131,3 +131,4 @@ dialog::backdrop{background:rgba(10,14,25,.55)}
 }
 @media (prefers-reduced-motion:reduce){ .hbar .fill,.vbar i,.toast{transition:none} }
 .card.mb{margin-bottom:12px} .t.mt{margin-top:6px}
+.btn.sm{padding:4px 10px;font-size:12px;margin-left:6px}

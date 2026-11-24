@@ -34,8 +34,12 @@ describe("email verification", () => {
     expect(r.headers.location).toBe("/?verified=expired");
   });
 
-  it("an unverified employer can save the profile but can't post a job", async () => {
+  it("an unverified employer can save the company (sign-up) but can't publish a job", async () => {
     const { agent, uid } = await signup({ verified: false, role: "employer" });
+    const company = await write(agent, "set", `postings/${uid}`, { company: { name: "Not Yet Cafe", biz: "220-81-62517" }, jobs: [] });
+    expect(company.status).toBe(200);
+    const closed = await write(agent, "set", `postings/${uid}`, { company: { name: "Not Yet Cafe", biz: "220-81-62517" }, jobs: [job("j0", { status: "closed" })] });
+    expect(closed.status).toBe(200);
     const r = await write(agent, "set", `postings/${uid}`, { company: { name: "Not Yet Cafe" }, jobs: [job("j1")] });
     expect(r.status).toBe(403);
     expect(r.body.code).toBe("failed-precondition");

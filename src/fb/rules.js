@@ -3,7 +3,8 @@
 //
 // load(col, id) must return that document's data (or null).
 
-const MIN_WAGE = Number(process.env.MIN_WAGE || 10320);
+import { minWage } from "../utils/pay.js";
+import { validBizNo } from "../utils/bizno.js";
 const ROLES = ["student", "employer"];
 
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -11,6 +12,7 @@ const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 // Smallest legal pay (same formula as the job form on the website)
 // daily: hours per day. monthly: hours per week (+ paid weekly holiday), 209-hour month.
 function minPayFor(type, hrs) {
+  const MIN_WAGE = minWage();
   if (type === "hourly" || !type) return MIN_WAGE;
   if (!(hrs > 0)) return null;
   if (type === "daily") return Math.ceil(MIN_WAGE * hrs);
@@ -33,7 +35,7 @@ function payProblem(j) {
     const max = type === "daily" ? 24 : 168;
     if (!(hrs > 0 && hrs <= max)) return `Please enter the hours per ${type === "daily" ? "day (1–24)" : "week (1–168)"}: ${title}`;
   }
-  if (pay < minPayFor(type, hrs)) return `Pay is below the minimum wage (₩${MIN_WAGE.toLocaleString()}/hour): ${title}`;
+  if (pay < minPayFor(type, hrs)) return `Pay is below the minimum wage (₩${minWage().toLocaleString()}/hour): ${title}`;
   return "";
 }
 
@@ -104,6 +106,8 @@ function hiddenJobChange(oldJobs, newJobs) {
   return "";
 }
 
+export const NEED_PHONE = "Please confirm your phone number first: we text you a 6-digit code.";
+export const BAD_BIZ = "This business registration number isn't valid. Please check the 10 digits on your certificate.";
 export const MOBILE_RE = /^010-?\d{4}-?\d{4}$/;
 export const BAD_MOBILE = "Please enter a Korean mobile number that starts with 010 (010-1234-5678).";
 export const NEED_VERIFY = "Please verify your email first. Check your inbox (and spam).";
@@ -115,9 +119,10 @@ export async function canWrite(op, col, id, oldData, newData, uid, load, ctx = {
   const { top, parentId, sub } = colInfo(col);
   const n = newData || {}, o = oldData || {};
 
-  // unverified accounts may save their own profile (sign-up needs it), but not post, apply or chat
+  // unverified accounts may save their own profile and company (sign-up needs it), but not post jobs, apply or chat
   if (!ctx.verified) {
-    const posting = top === "postings" && !sub && op !== "delete";
+    // the company profile may be saved (sign-up needs it); OPEN jobs need a confirmed email
+    const posting = top === "postings" && !sub && op !== "delete" && Array.isArray(n.jobs) && n.jobs.some(j => j && j.status === "open");
     const creates = op === "create" && ((top === "applications" && !sub) || top === "chats");
     if (posting || creates) return NEED_VERIFY;
   }
@@ -138,6 +143,10 @@ export async function canWrite(op, col, id, oldData, newData, uid, load, ctx = {
     if (op === "delete") return "";
     if ((await myRole(uid, load)) !== "employer") return "Only employers can post jobs.";
     if (!Array.isArray(n.jobs)) return "jobs must be a list.";
+    // business number: must pass the official check digit (checked when it changes, so old profiles still save)
+    const biz = n.company?.biz;
+    if (biz != null && biz !== o.company?.biz && !validBizNo(biz))
+      return BAD_BIZ;
     if (n.jobs.length > 50) return "Max 50 jobs.";
     const img = badImage(n);
     if (img) return img;
@@ -154,6 +163,7 @@ export async function canWrite(op, col, id, oldData, newData, uid, load, ctx = {
   if (top === "applications" && !sub) {
     if (op === "create") {
       if ((await myRole(uid, load)) !== "student") return "Only students can apply.";
+      if (ctx.phoneOk === false) return NEED_PHONE;
       if (n.studentUid !== uid) return "Wrong student.";
       if (n.status !== "new") return "New applications must have status 'new'.";
       // P12 fix: the application must be for a real open job of that employer, with its real title.

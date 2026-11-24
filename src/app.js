@@ -10,16 +10,13 @@ import { fileURLToPath } from "node:url";
 import mongoose from "mongoose";
 import pinoHttp from "pino-http";
 import { logger, rateLimited } from "./utils/logger.js";
-import authRoutes from "./routes/auth.routes.js";
-import jobRoutes from "./routes/jobs.routes.js";
-import applicationRoutes from "./routes/applications.routes.js";
-import chatRoutes from "./routes/chats.routes.js";
 import fbRoutes, { fbErrors } from "./routes/fb.routes.js";
 import fileRoutes from "./routes/files.routes.js";
 import notificationRoutes from "./routes/notifications.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import reportRoutes from "./routes/reports.routes.js";
 import { errorHandler, notFound } from "./middleware/error.js";
+import { minifyPublic, serveMinified } from "./utils/minify.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -120,10 +117,6 @@ app.get("/api/health", async (req, res) => {
   }
   res.status(db === "up" ? 200 : 503).json({ ok: db === "up", uptime: Math.round(process.uptime()), db, version: VERSION });
 });
-app.use("/api/auth", authRoutes);
-app.use("/api/jobs", jobRoutes);
-app.use("/api/applications", applicationRoutes);
-app.use("/api/chats", chatRoutes);
 app.use("/api/notifications", notificationRoutes);   // P8
 app.use("/api/reports", reportRoutes);               // P9: "🚩 Report" from users
 app.use("/api/admin", adminRoutes);                  // P9: admin panel (requireAdmin inside)
@@ -133,13 +126,15 @@ app.use("/api", notFound);
 // so those requests may be cached for 7 days without asking again. Pages (.html) and anything requested
 // WITHOUT ?v= are "no-cache": the browser keeps a copy but checks it first (cheap 304 thanks to the ETag).
 const LONG_CACHE = new Set([".css", ".js", ".png", ".webp", ".woff2", ".jpg", ".jpeg", ".svg", ".ico"]);
-app.use(express.static(path.join(__dirname, "../public"), {
-  maxAge: "7d",
-  setHeaders(res, file) {
-    const versioned = LONG_CACHE.has(path.extname(file).toLowerCase()) && /[?&]v=/.test(res.req?.originalUrl || "");
-    res.setHeader("Cache-Control", versioned ? "public, max-age=604800, immutable" : "no-cache");
-  },
-}));
+const setCache = (res, file) => {
+  const versioned = LONG_CACHE.has(path.extname(file).toLowerCase()) && /[?&]v=/.test(res.req?.originalUrl || "");
+  res.setHeader("Cache-Control", versioned ? "public, max-age=604800, immutable" : "no-cache");
+};
+const PUBLIC_DIR = path.join(__dirname, "../public");
+// production: minified copies of our .js / .css (made in memory at start-up, see utils/minify.js)
+const MINIFY = process.env.MINIFY_ASSETS ? process.env.MINIFY_ASSETS === "true" : process.env.NODE_ENV === "production";
+if (MINIFY) app.use(serveMinified(await minifyPublic(PUBLIC_DIR), setCache));
+app.use(express.static(PUBLIC_DIR, { maxAge: "7d", setHeaders: setCache }));
 app.use(errorHandler);
 
 export default app;

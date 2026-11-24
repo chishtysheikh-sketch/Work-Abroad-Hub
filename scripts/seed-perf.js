@@ -7,6 +7,16 @@
 import mongoose from "mongoose";
 import { env } from "../src/config/env.js";
 
+// fake but valid business numbers (correct check digit) for the test employers
+function bizNo(i) {
+  const d = String(1000000 + i * 7919).slice(-8).padStart(8, "0") + "1";
+  const w = [1, 3, 7, 1, 3, 7, 1, 3, 5];
+  let sum = 0; for (let k = 0; k < 9; k++) sum += Number(d[k]) * w[k];
+  sum += Math.floor((Number(d[8]) * 5) / 10);
+  const all = d + ((10 - (sum % 10)) % 10);
+  return `${all.slice(0, 3)}-${all.slice(3, 5)}-${all.slice(5)}`;
+}
+
 const EMPLOYERS = 30, JOBS_EACH = 5;
 const CITIES = [["Seoul", 37.5665, 126.978], ["Busan", 35.1796, 129.0756], ["Incheon", 37.4563, 126.7052], ["Daegu", 35.8714, 128.6014], ["Daejeon", 36.3504, 127.3845]];
 const CATS = ["cafe", "retail", "tutor", "translate", "office", "tourism", "events", "online"];
@@ -68,7 +78,7 @@ if (arg === "--more") {
       userRows.push({ _id, perfSeed: true, email: `perf-employer-${i + 1}@perf.invalid`, name, role: "employer",
         passwordHash: "perf-seed-not-a-real-hash", emailVerified: true, blocked: false, isAdmin: false, tokenVersion: 0,
         createdAt: now, updatedAt: now });
-      const company = { name, biz: `${100 + i}-${10 + (i % 90)}-${String(10000 + i * 37).slice(0, 5)}`, type: CATS[i % CATS.length],
+      const company = { name, biz: bizNo(i), type: CATS[i % CATS.length],
         contact: "Perf Tester", email: `perf-employer-${i + 1}@perf.invalid`, phone: "010-0000-0000", city, address: `${i + 1} Test-ro, ${city}`,
         langs: "Korean, English", about: "A pretend company made by scripts/seed-perf.js for load testing. ".repeat(3) };
       const jobs = [];

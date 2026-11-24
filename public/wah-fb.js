@@ -172,6 +172,13 @@ window.wahAuth = {
     if (auth.currentUser) auth.currentUser.emailVerified = true;
   },
   async resendVerification() { return api("/auth/resend-verification", {}); },
+  // student phone (only when the server has SMS codes switched on: user.phoneCheck)
+  async sendPhoneCode() { return api("/auth/phone/send", {}); },
+  async verifyPhoneCode(code) {
+    const d = await api("/auth/phone/verify", { code });
+    if (auth.currentUser) auth.currentUser.phoneVerified = d.phoneVerified || "";
+    return d;
+  },
   // "" when the address looks real, otherwise the reason (typo, temporary inbox, domain can't get mail…)
   async checkEmail(email) {
     try { const d = await api("/auth/check-email", { email }); return d.ok ? "" : (d.error || ""); }
@@ -320,56 +327,16 @@ async function write(body) {
   catch (e) { if (e.fromServer) showNote(e.message); throw e; }
 }
 
-// "Please confirm your email" bar at the top of the page
-let banner = null;
-function updateBanner() {
-  const u = auth.currentUser;
-  const need = !!(u && !u.emailVerified);
-  if (!need) { if (banner) banner.remove(); banner = null; document.body.style.marginTop = ""; return; }
-  if (!banner) {
-    banner = document.createElement("div");
-    banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:250;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;padding:9px 40px 9px 14px;background:#fff4e5;color:#7a4100;border-bottom:1px solid #f5c58a;font:500 14px/1.4 system-ui,sans-serif;text-align:center";
-    const text = document.createElement("span");
-    const btn = document.createElement("button");
-    btn.type = "button"; btn.textContent = "Resend email";
-    btn.style.cssText = "border:0;border-radius:8px;padding:5px 12px;background:#ff8a3d;color:#fff;font:600 13px system-ui,sans-serif;cursor:pointer";
-    btn.addEventListener("click", async () => {
-      btn.disabled = true;
-      try { const d = await api("/auth/resend-verification", {}); showNote(d.alreadyVerified ? "Your email is already confirmed." : "Sent! Check your inbox (and spam).", true); if (d.alreadyVerified) refreshMe(); }
-      catch (e) { showNote(e.message || "Couldn't send the email."); }
-      setTimeout(() => (btn.disabled = false), 3000);
-    });
-    const close = document.createElement("button");
-    close.type = "button"; close.textContent = "✕"; close.setAttribute("aria-label", "Hide");
-    close.style.cssText = "position:absolute;right:10px;top:50%;transform:translateY(-50%);border:0;background:none;color:inherit;font-size:16px;cursor:pointer";
-    close.addEventListener("click", () => { banner.style.display = "none"; document.body.style.marginTop = ""; });
-    banner.append(text, btn, close);
-    document.body.appendChild(banner);
-  }
-  banner.firstChild.textContent = `Please confirm your email: we sent a link to ${u.email}.`;
-  if (banner.style.display !== "none") document.body.style.marginTop = banner.offsetHeight + "px";
-}
-
-// re-check with the server (e.g. after the link was clicked in another tab)
+// Email confirmation: the banner, the code screen and the "/?verified=1" message live in script.js
+// (renderVerifyBar / askEmailCode). Here: re-check with the server when the tab comes back into view
+// (e.g. the email's link was clicked in another tab) and tell the page.
 async function refreshMe() {
   const u = await api("/auth/me", null, "GET").then(d => d.user).catch(() => null);
-  if (u && auth.currentUser && u.uid === auth.currentUser.uid) { auth.currentUser = u; updateBanner(); }
+  if (u && auth.currentUser && u.uid === auth.currentUser.uid) {
+    Object.assign(auth.currentUser, u);      // same object the page holds
+    window.dispatchEvent(new Event("wah-user-refreshed"));
+  }
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && auth.currentUser && !auth.currentUser.emailVerified) refreshMe();
 });
-
-auth.listeners.add(updateBanner);          // runs on every login / logout
-boot.then(updateBanner);
-
-// back from the email link: /?verified=1 or /?verified=expired
-{
-  const p = new URLSearchParams(location.search), v = p.get("verified");
-  if (v) {
-    if (v === "1") showNote("Email confirmed, thank you!", true);
-    else showNote("That link has expired. Log in and press Resend.");
-    p.delete("verified");
-    const q = p.toString();
-    history.replaceState(null, "", location.pathname + (q ? "?" + q : "") + location.hash);
-  }
-}
