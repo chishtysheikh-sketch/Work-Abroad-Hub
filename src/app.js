@@ -17,6 +17,7 @@ import adminRoutes from "./routes/admin.routes.js";
 import reportRoutes from "./routes/reports.routes.js";
 import { errorHandler, notFound } from "./middleware/error.js";
 import { minifyPublic, serveMinified } from "./utils/minify.js";
+import { env } from "./config/env.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -116,6 +117,19 @@ app.get("/api/health", async (req, res) => {
     } catch (err) { req.log.error({ err }, "health: MongoDB ping failed"); }
   }
   res.status(db === "up" ? 200 : 503).json({ ok: db === "up", uptime: Math.round(process.uptime()), db, version: VERSION });
+});
+// Search engines: what they may read (robots.txt) and the list of pages to index (sitemap.xml).
+// Both use APP_URL, so they follow the real address (Render now, your own domain later).
+const SITE = env.APP_URL.replace(/\/+$/, "");
+app.get("/robots.txt", (req, res) => {
+  res.type("text/plain").set("Cache-Control", "public, max-age=86400").send(
+    `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin.html\nDisallow: /reset-password.html\nDisallow: /offline.html\n\nSitemap: ${SITE}/sitemap.xml\n`);
+});
+app.get("/sitemap.xml", (req, res) => {
+  const day = new Date().toISOString().slice(0, 10);
+  res.type("application/xml").set("Cache-Control", "public, max-age=86400").send(
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+    `  <url><loc>${SITE}/</loc><lastmod>${day}</lastmod><changefreq>daily</changefreq><priority>1.0</priority></url>\n</urlset>\n`);
 });
 app.use("/api/notifications", notificationRoutes);   // P8
 app.use("/api/reports", reportRoutes);               // P9: "🚩 Report" from users
