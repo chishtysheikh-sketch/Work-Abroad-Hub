@@ -18,4 +18,18 @@ describe("search engines", () => {
     expect(r.text).toMatch(/<urlset[^>]*sitemaps\.org/);
     expect(r.text).toMatch(/<loc>https?:\/\/[^<]+\/<\/loc>/);
   });
+
+  it("the home page has the search and link-preview tags; private pages are noindex", async () => {
+    const c = await client();
+    const home = (await c.get("/")).text;
+    expect(home).toMatch(/<title>Part-time Jobs for International Students in Korea \| Work Abroad Hub<\/title>/);
+    expect(home).toMatch(/<meta name="description" content="[^"]{120,160}">/);
+    expect(home).toMatch(/<link rel="canonical" href="https:\/\/[^"]+\/">/);
+    for (const tag of ["og:title", "og:description", "og:image", "og:url"]) expect(home).toContain(`property="${tag}"`);
+    for (const tag of ["twitter:card", "twitter:title", "twitter:description", "twitter:image"]) expect(home).toContain(`name="${tag}"`);
+    const ld = JSON.parse(home.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
+    expect(ld["@graph"].map(x => x["@type"])).toEqual(["Organization", "WebSite"]);
+    for (const page of ["/admin.html", "/reset-password.html"])
+      expect((await c.get(page)).text).toMatch(/<meta name="robots" content="noindex/);
+  });
 });
