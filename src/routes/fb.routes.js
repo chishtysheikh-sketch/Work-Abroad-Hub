@@ -16,6 +16,7 @@ import { sendMail, emailTemplate } from "../utils/mailer.js";
 import { sendSms, smsMode } from "../utils/sms.js";
 import { MOBILE_RE } from "../fb/rules.js";
 import { env, googleEnabled } from "../config/env.js";
+import { normalizeBiz } from "../utils/bizno.js";
 import { OAuth2Client } from "google-auth-library";
 import { readDoc, runQuery, writeDoc, parsePath, FbError } from "../fb/core.js";
 import { sharedResult, personalDocs, isPublicCol } from "../fb/shared.js";
@@ -486,6 +487,11 @@ router.post("/write", writeLimiter, async (req, res) => {
   if (uid && path === `users/${uid}` && data && typeof data === "object" && data.profile && typeof data.profile === "object" && "email" in data.profile) {
     const me = await User.findById(uid).select("email").lean();
     if (me) data.profile.email = me.email;
+  }
+  // business number: any 10 digits are saved as 123-45-67890 (anything else is left for the rules to refuse)
+  if (uid && path === `postings/${uid}` && data && typeof data === "object" && data.company && typeof data.company === "object") {
+    const biz = normalizeBiz(data.company.biz);
+    if (biz) data.company.biz = biz;
   }
   const ctx = { verified: !!(t && t.verified) };
   // phone codes switched on → a student applies only with the phone on their profile confirmed by SMS

@@ -1,4 +1,4 @@
-import { firebaseConfig } from "./firebase-config.js?v=1796000004";
+import { firebaseConfig } from "./firebase-config.js?v=1796000005";
 
 // Korean minimum wage per hour, by year: keep in step with src/utils/pay.js (update every January)
 const MIN_WAGE_BY_YEAR = {2025:10030, 2026:10320};
@@ -138,7 +138,7 @@ async function initBackend(){
   if(!configReady()) return startLocal("Firebase isn't set up yet (fill in firebase-config.js), so accounts and jobs are saved on this device only.");
   try{
     const base = `https://www.gstatic.com/firebasejs/${FB_VERSION}/`;
-    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1796000004"),import("./wah-fb.js?v=1796000004"),import("./wah-fb.js?v=1796000004")]);
+    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1796000005"),import("./wah-fb.js?v=1796000005"),import("./wah-fb.js?v=1796000005")]);
     const app = appMod.initializeApp(firebaseConfig);
     backend.fb = {...authMod, ...fsMod};
     backend.auth = authMod.getAuth(app);
@@ -712,10 +712,18 @@ function authNote(){
 function rowHtml(label,inner,req,errId){return `<div class="prow"><label>${label}${req?' <span class="req">*</span>':""}</label><div>${inner}${errId?`<div class="err" id="${errId}"></div>`:""}</div></div>`}
 function citySelect(name,val){return `<select name="${name}">${ALL_CITIES.filter(c=>c!=="Remote").map(c=>`<option ${c===val?"selected":""}>${c}</option>`).join("")}</select>`}
 function fieldErr(form,name,msg){const i=form.elements[name];const e=$("err_"+name);if(i)i.classList.toggle("bad",!!msg);if(e){e.textContent=msg||"";e.classList.toggle("show",!!msg)}return !msg}
-// official check digit of a Korean business registration number (same as src/utils/bizno.js)
-function validBizNo(s){ const d=String(s||"").replace(/\D/g,""); if(!/^\d{10}$/.test(d)||d==="0000000000") return false;
-  const w=[1,3,7,1,3,7,1,3,5]; let sum=0; for(let i=0;i<9;i++) sum+=+d[i]*w[i]; sum+=Math.floor(+d[8]*5/10); return (10-sum%10)%10===+d[9]; }
-const PHONE_RE=/^010-?\d{4}-?\d{4}$/, EMAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]+$/, BIZ_RE=/^\d{3}-?\d{2}-?\d{5}$/;
+// business registration number: exactly 10 digits, saved as 123-45-67890 (same as normalizeBiz in src/utils/bizno.js)
+function normalizeBiz(s){ const t=String(s??"").normalize("NFKC").trim(); if(!/^[\d\s.\-‐-―−]+$/.test(t)) return null;
+  const d=t.replace(/\D/g,""); return d.length===10 ? `${d.slice(0,3)}-${d.slice(3,5)}-${d.slice(5)}` : null; }
+const validBizNo = s => normalizeBiz(s)!==null;
+function formatBizTyping(raw){ const d=String(raw).normalize("NFKC").replace(/\D/g,"").slice(0,10);
+  return d.length<4 ? d : d.length<6 ? `${d.slice(0,3)}-${d.slice(3)}` : `${d.slice(0,3)}-${d.slice(3,5)}-${d.slice(5)}`; }
+function wireBizFormat(form){
+  const el=form && form.elements.biz; if(!el) return;
+  if(el.value) el.value=normalizeBiz(el.value)||el.value;
+  el.addEventListener("input", ()=>{ if(!/[a-z가-힣]/i.test(el.value)) el.value=formatBizTyping(el.value); fieldErr(form,"biz",""); });
+}
+const PHONE_RE=/^010-?\d{4}-?\d{4}$/, EMAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Does this form need to create a login (email + password) as well as the profile?
 const needsCredentials = () => backend.mode==="firebase" && !backend.user;
@@ -838,7 +846,7 @@ function employerForm(){
       ${rowHtml(L("Email","이메일"),`<input name="email" type="email" maxlength="80" value="${esc(prefillEmail)}" placeholder="hr@company.kr">`,1,"err_email")}
       ${credentialRows()}
       ${rowHtml(L("Company / store name","상호명"),`<input name="name" maxlength="60" value="${esc(c.name)}" placeholder="${L("e.g. Mapo Roasters","예: 마포 로스터스")}">`,1,"err_name")}
-      ${rowHtml(L("Business reg. no.","사업자등록번호"),`<input name="biz" maxlength="12" value="${esc(c.biz)}" placeholder="123-45-67890">`,1,"err_biz")}
+      ${rowHtml(L("Business reg. no.","사업자등록번호"),`<input name="biz" inputmode="numeric" autocomplete="off" maxlength="14" value="${esc(c.biz)}" placeholder="123-45-67890">`,1,"err_biz")}
       ${rowHtml(L("Business type","업종"),`<select name="type">${Object.entries(CATS).map(([k,v])=>`<option value="${k}" ${k===c.type?"selected":""}>${lang==="ko"?v.ko:v.en}</option>`).join("")}</select>`,1)}
       ${rowHtml(L("Contact person","담당자 이름"),`<input name="contact" maxlength="40" value="${esc(c.contact||(account&&account.displayName)||"")}">`,1,"err_contact")}
       ${rowHtml(L("Phone number","연락처"),`<input name="phone" maxlength="13" value="${esc(c.phone)}" placeholder="010-1234-5678 / 02-123-4567">`,1,"err_phone")}
@@ -849,20 +857,20 @@ function employerForm(){
     </form>${authNote()}`,"auth-modal");
   $("backBtn").onclick = ()=>editing?closeModal():chooser();
   $("cancelBtn").onclick = closeModal;
-  wireGoogleSignup("employer"); wireEmailCheck($("emForm"));
+  wireGoogleSignup("employer"); wireEmailCheck($("emForm")); wireBizFormat($("emForm"));
   $("emForm").onsubmit = async e=>{
     e.preventDefault(); const f=e.target, v=n=>f.elements[n].value.trim();
     const ok = [fieldErr(f,"email",EMAIL_RE.test(v("email"))?"":L("Please enter a valid email.","올바른 이메일을 입력해 주세요.")),
       checkPasswords(f),
       fieldErr(f,"name",v("name")?"":L("Please enter your company name.","상호명을 입력해 주세요.")),
-      fieldErr(f,"biz",!BIZ_RE.test(v("biz"))?L("Enter a 10-digit business registration number (123-45-67890).","사업자등록번호 10자리를 입력해 주세요."):!validBizNo(v("biz"))?L("This business registration number isn't valid. Please check the 10 digits on your certificate.","유효하지 않은 사업자등록번호예요. 등록증의 10자리를 확인해 주세요."):""),
+      fieldErr(f,"biz",validBizNo(v("biz"))?"":L("Enter the 10-digit business registration number.","사업자등록번호 10자리를 입력해 주세요.")),
       fieldErr(f,"contact",v("contact")?"":L("Please enter a contact name.","담당자 이름을 입력해 주세요.")),
       fieldErr(f,"phone",/^0\d{1,2}-?\d{3,4}-?\d{4}$/.test(v("phone"))?"":L("Please enter a phone number.","연락처를 입력해 주세요."))].every(Boolean);
     if(!ok) return;
     $("emSubmit").disabled=true;
     if(!(await emailLooksReal(f))){ $("emSubmit").disabled=false; return; }
     if(!(await ensureSignedIn(f,"email"))){ $("emSubmit").disabled=false; return; }
-    const company = {name:v("name"),biz:v("biz"),type:v("type"),contact:v("contact"),email:v("email"),phone:v("phone"),city:v("city"),address:v("address"),langs:v("langs")};
+    const company = {name:v("name"),biz:normalizeBiz(v("biz")),type:v("type"),contact:v("contact"),email:v("email"),phone:v("phone"),city:v("city"),address:v("address"),langs:v("langs")};
     account = {role:"employer",loggedIn:true,createdAt:(editing&&account.createdAt)||Date.now(),profile:{contact:company.contact}};
     await saveAccount();                       // the role must be saved before the posting (rules check it)
     const mp = myPosting();

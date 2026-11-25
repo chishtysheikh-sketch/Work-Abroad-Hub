@@ -21,13 +21,15 @@ test("employer posts a job, a student applies, the employer sees the applicant",
   await ef.locator('[name="password"]').fill(PASSWORD);
   await ef.locator('[name="password2"]').fill(PASSWORD);
   await ef.locator('[name="name"]').fill("E2E Coffee");
-  await ef.locator('[name="biz"]').fill("123-45-67890");
+  await ef.locator('[name="biz"]').fill("123456789");                      // 9 digits → refused
   await ef.locator('[name="contact"]').fill("Kim Manager");
   await ef.locator('[name="phone"]').fill("02-123-4567");
   await ef.locator('[name="agree"]').check();
   await emp.locator("#emSubmit").click();
-  await expect(emp.locator("#err_biz")).toContainText("isn't valid");
-  await ef.locator('[name="biz"]').fill("220-81-62517");
+  await expect(emp.locator("#err_biz")).toContainText("10-digit business registration number");
+  await ef.locator('[name="biz"]').fill("");
+  await ef.locator('[name="biz"]').pressSequentially("1234567890");        // formatted while typing
+  await expect(ef.locator('[name="biz"]')).toHaveValue("123-45-67890");
   await emp.locator("#emSubmit").click();
   await confirmEmail(emp, empEmail);
 

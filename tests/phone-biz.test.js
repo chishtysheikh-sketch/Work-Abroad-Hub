@@ -9,7 +9,7 @@ vi.mock("../src/utils/sms.js", () => ({
 }));
 
 const { signup, write, employerWithJobs, job, client } = await import("./helpers.js");
-const { validBizNo } = await import("../src/utils/bizno.js");
+const { validBizNo, normalizeBiz, bizCheckDigitOk } = await import("../src/utils/bizno.js");
 const { minWage, minWageWarning, MIN_WAGE_BY_YEAR } = await import("../src/utils/pay.js");
 
 const lastCode = () => texts.at(-1)?.text.match(/(\d{6})/)?.[1];
@@ -74,21 +74,44 @@ describe("phone confirmation by SMS (when switched on)", () => {
 });
 
 describe("business registration number", () => {
-  it("check digit: real numbers pass, made-up ones fail", () => {
-    expect(validBizNo("220-81-62517")).toBe(true);
-    expect(validBizNo("1248100998")).toBe(true);
-    for (const bad of ["123-45-67890", "000-00-00000", "220-81-62518", "12345", "", null]) expect(validBizNo(bad), String(bad)).toBe(false);
+  const GOOD = ["1234567890", "123-45-67890", "123 45 67890", " 123.45.67890 ", "１２３－４５－６７８９０"];
+  const BAD = ["123456789", "12345678901", "123-45-6789a", "abc-de-fghij", "12345", "", null, undefined, 1234567890.5];
+
+  it("any 10 digits are valid (no check digit) and come out as 123-45-67890", () => {
+    for (const g of GOOD) expect(normalizeBiz(g), g).toBe("123-45-67890");
+    for (const g of GOOD) expect(validBizNo(g), g).toBe(true);
+    for (const b of BAD) expect(validBizNo(b), String(b)).toBe(false);
+    // the check digit is only a hint for admins
+    expect(bizCheckDigitOk("220-81-62517")).toBe(true);
+    expect(bizCheckDigitOk("123-45-67890")).toBe(false);
   });
 
-  it("the server refuses an invalid number, accepts a valid one, and lets old profiles save", async () => {
+  it("the server saves every 10-digit form as 123-45-67890 and refuses the rest", async () => {
     const emp = await employerWithJobs([]);
-    const bad = await write(emp.agent, "set", `postings/${emp.uid}`, { company: { name: "Cafe", biz: "123-45-67890" }, jobs: [] });
-    expect(bad.status).toBe(403);
-    expect(bad.body.error).toMatch(/business registration number/);
-    expect((await write(emp.agent, "set", `postings/${emp.uid}`, { company: { name: "Cafe", biz: "220-81-62517" }, jobs: [] })).status).toBe(200);
-    // an old, invalid number that was already saved doesn't block other changes
-    await mongoose.connection.collection("fbdocs").updateOne({ col: "postings", docId: emp.uid }, { $set: { "data.company.biz": "123-45-67890" } });
-    expect((await write(emp.agent, "set", `postings/${emp.uid}`, { company: { name: "Cafe 2", biz: "123-45-67890" }, jobs: [] })).status).toBe(200);
+    const saved = async () => (await mongoose.connection.collection("fbdocs").findOne({ col: "postings", docId: emp.uid })).data.company.biz;
+    for (const g of GOOD) {
+      await write(emp.agent, "set", `postings/${emp.uid}`, { company: { name: "Cafe", biz: "999-99-99999" }, jobs: [] });
+      const r = await write(emp.agent, "set", `postings/${emp.uid}`, { company: { name: "Cafe", biz: g }, jobs: [] });
+      expect(r.status, g).toBe(200);
+      expect(await saved(), g).toBe("123-45-67890");
+    }
+    for (const b of ["123456789", "12345678901", "123-45-6789a"]) {
+      const r = await write(emp.agent, "set", `postings/${emp.uid}`, { company: { name: "Cafe", biz: b }, jobs: [] });
+      expect(r.status, b).toBe(403);
+      expect(r.body.error).toMatch(/10-digit business registration number/);
+    }
+  });
+
+  it("old numbers saved in other formats still load and save", async () => {
+    const emp = await employerWithJobs([]);
+    const col = mongoose.connection.collection("fbdocs");
+    // old format → saved again → normalized
+    await col.updateOne({ col: "postings", docId: emp.uid }, { $set: { "data.company.biz": "1234567890" } });
+    expect((await write(emp.agent, "set", `postings/${emp.uid}`, { company: { name: "Cafe 2", biz: "1234567890" }, jobs: [] })).status).toBe(200);
+    expect((await col.findOne({ col: "postings", docId: emp.uid })).data.company.biz).toBe("123-45-67890");
+    // an old, broken number that isn't changed doesn't block other edits
+    await col.updateOne({ col: "postings", docId: emp.uid }, { $set: { "data.company.biz": "12-345" } });
+    expect((await write(emp.agent, "set", `postings/${emp.uid}`, { company: { name: "Cafe 3", biz: "12-345" }, jobs: [] })).status).toBe(200);
   });
 });
 

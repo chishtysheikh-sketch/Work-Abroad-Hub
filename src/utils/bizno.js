@@ -1,14 +1,26 @@
 // Korean business registration numbers (사업자등록번호), e.g. 123-45-67890.
-//   validBizNo(s)  → true when the 10 digits pass the official check digit (catches typos and made-up numbers)
-//   ntsStatus(s)   → what the National Tax Service says (needs NTS_API_KEY), or null when not set up / unreachable
+//   normalizeBiz(s) → "123-45-67890" when s is exactly 10 digits (spaces, dashes, dots and full-width
+//                     characters allowed around them), otherwise null. No check-digit test.
+//   validBizNo(s)   → normalizeBiz(s) !== null
+//   bizCheckDigitOk(s) → the official check digit matches (shown to admins as a hint only, never blocks)
+//   ntsStatus(s)    → what the National Tax Service says (needs NTS_API_KEY), or null when not set up / unreachable
 import { env } from "../config/env.js";
 import { logger } from "./logger.js";
 
 export const bizDigits = s => String(s ?? "").replace(/\D/g, "");
 
-export function validBizNo(s) {
-  const d = bizDigits(s);
-  if (!/^\d{10}$/.test(d) || d === "0000000000") return false;
+export function normalizeBiz(s) {
+  if (typeof s !== "string" && typeof s !== "number") return null;
+  const t = String(s).normalize("NFKC").trim();          // full-width ０-９ / － → normal digits / dash
+  if (!/^[\d\s.\-‐-―−]+$/.test(t)) return null;            // only digits and separators: letters → invalid
+  const d = t.replace(/\D/g, "");
+  return d.length === 10 ? `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}` : null;
+}
+export const validBizNo = s => normalizeBiz(s) !== null;
+
+export function bizCheckDigitOk(s) {
+  const d = bizDigits(normalizeBiz(s));
+  if (d.length !== 10) return false;
   const w = [1, 3, 7, 1, 3, 7, 1, 3, 5];
   let sum = 0;
   for (let i = 0; i < 9; i++) sum += Number(d[i]) * w[i];
@@ -22,7 +34,7 @@ const STATUS = { "01": "active", "02": "suspended", "03": "closed" };
 // → { status: "active" | "suspended" | "closed" | "unknown", label, taxType } or null
 export async function ntsStatus(s) {
   const d = bizDigits(s);
-  if (!env.NTS_API_KEY || !validBizNo(d)) return null;
+  if (!env.NTS_API_KEY || d.length !== 10) return null;
   const hit = cache.get(d);
   if (hit && Date.now() - hit.at < 6 * 3600 * 1000) return hit.value;
   try {

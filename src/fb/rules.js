@@ -107,7 +107,7 @@ function hiddenJobChange(oldJobs, newJobs) {
 }
 
 export const NEED_PHONE = "Please confirm your phone number first: we text you a 6-digit code.";
-export const BAD_BIZ = "This business registration number isn't valid. Please check the 10 digits on your certificate.";
+export const BAD_BIZ = "Enter the 10-digit business registration number.";
 export const MOBILE_RE = /^010-?\d{4}-?\d{4}$/;
 export const BAD_MOBILE = "Please enter a Korean mobile number that starts with 010 (010-1234-5678).";
 export const NEED_VERIFY = "Please verify your email first. Check your inbox (and spam).";
@@ -143,7 +143,7 @@ export async function canWrite(op, col, id, oldData, newData, uid, load, ctx = {
     if (op === "delete") return "";
     if ((await myRole(uid, load)) !== "employer") return "Only employers can post jobs.";
     if (!Array.isArray(n.jobs)) return "jobs must be a list.";
-    // business number: must pass the official check digit (checked when it changes, so old profiles still save)
+    // business number: exactly 10 digits (checked when it changes, so old profiles still save)
     const biz = n.company?.biz;
     if (biz != null && biz !== o.company?.biz && !validBizNo(biz))
       return BAD_BIZ;
