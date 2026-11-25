@@ -26,7 +26,7 @@ const schema = z.object({
   // P11: how much to log: fatal | error | warn | info (default) | debug | trace
   LOG_LEVEL: optional(z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])),
   // National Tax Service business-status lookup (optional, data.go.kr "국세청_사업자등록정보 진위확인 및 상태조회").
-  // Without it, business numbers are still checked with their check digit.
+  // Without it, business numbers are only checked for 10 digits.
   NTS_API_KEY: optional(z.string().trim().min(10)),
   // SMS codes for student phones (optional, Solapi / CoolSMS). Without them, phones are only format-checked
   // (development prints the code in the console).
