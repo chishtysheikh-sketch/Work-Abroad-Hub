@@ -149,6 +149,13 @@ const PUBLIC_DIR = path.join(__dirname, "../public");
 const MINIFY = process.env.MINIFY_ASSETS ? process.env.MINIFY_ASSETS === "true" : process.env.NODE_ENV === "production";
 if (MINIFY) app.use(serveMinified(await minifyPublic(PUBLIC_DIR), setCache));
 app.use(express.static(PUBLIC_DIR, { maxAge: "7d", setHeaders: setCache }));
+// any other address: a friendly "page not found" for people, plain 404 for everything else
+app.use((req, res, next) => {
+  if (req.method !== "GET" && req.method !== "HEAD") return next();
+  res.status(404);
+  if (req.accepts(["html", "json"]) === "html") return res.set("Cache-Control", "no-cache").sendFile(path.join(PUBLIC_DIR, "404.html"));
+  res.type("text/plain").send("Not found");
+});
 app.use(errorHandler);
 
 export default app;

@@ -1,4 +1,4 @@
-import { firebaseConfig } from "./firebase-config.js?v=1796000005";
+import { firebaseConfig } from "./firebase-config.js?v=1796000006";
 
 // Korean minimum wage per hour, by year: keep in step with src/utils/pay.js (update every January)
 const MIN_WAGE_BY_YEAR = {2025:10030, 2026:10320};
@@ -138,7 +138,7 @@ async function initBackend(){
   if(!configReady()) return startLocal("Firebase isn't set up yet (fill in firebase-config.js), so accounts and jobs are saved on this device only.");
   try{
     const base = `https://www.gstatic.com/firebasejs/${FB_VERSION}/`;
-    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1796000005"),import("./wah-fb.js?v=1796000005"),import("./wah-fb.js?v=1796000005")]);
+    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1796000006"),import("./wah-fb.js?v=1796000006"),import("./wah-fb.js?v=1796000006")]);
     const app = appMod.initializeApp(firebaseConfig);
     backend.fb = {...authMod, ...fsMod};
     backend.auth = authMod.getAuth(app);
@@ -4282,4 +4282,13 @@ renderAll = function(){ _renderAllVB(); renderVerifyBar(); };
 })();
 
 persist(); payLabel(); renderAll(); calcHours(); calcPay();
-initBackend().then(()=>{ if(location.hash==="#dashboard" && account && account.loggedIn) showView("dashboard"); });
+initBackend().then(()=>{
+  if(location.hash!=="#dashboard") return;
+  // the account (and its role) arrives a moment after start-up: wait for it, up to 10 seconds
+  let n=0; const t=setInterval(()=>{
+    const ready = backend.mode!=="loading" && account && account.loggedIn && account.role;
+    if(!ready && ++n<50) return;
+    clearInterval(t);
+    if(location.hash==="#dashboard" && account && account.loggedIn && account.role==="employer") showView("dashboard");
+  },200);
+});

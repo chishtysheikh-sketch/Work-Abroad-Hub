@@ -32,4 +32,13 @@ describe("search engines", () => {
     for (const page of ["/admin.html", "/reset-password.html"])
       expect((await c.get(page)).text).toMatch(/<meta name="robots" content="noindex/);
   });
+
+  it("an unknown address shows a friendly 404 page (and stays out of search results)", async () => {
+    const c = await client();
+    const r = await c.get("/no-such-page").set("Accept", "text/html");
+    expect(r.status).toBe(404);
+    expect(r.text).toMatch(/Page not found/);
+    expect(r.text).toMatch(/noindex/);
+    expect((await c.get("/api/no-such-api")).status).toBe(404);
+  });
 });

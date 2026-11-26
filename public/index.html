@@ -46,7 +46,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<link rel="stylesheet" href="style.css?v=1796000005">
+<link rel="stylesheet" href="style.css?v=1796000006">
 </head>
 <body>
 
@@ -83,9 +83,9 @@
 
       <form class="search" id="heroSearch">
         <div class="field"><label data-i18n="what">What</label><input id="qInput" placeholder="Café, tutoring, translation…"></div>
-        <div class="field"><label data-i18n="where">Where</label>
+        <div class="field"><label data-i18n="where" for="cityInput">Where</label>
           <select id="cityInput"><option value="">All cities</option></select></div>
-        <div class="field"><label data-i18n="korean">Korean level</label>
+        <div class="field"><label data-i18n="korean" for="levelInput">Korean level</label>
           <select id="levelInput">
             <option value="">Any</option>
             <option value="0">No Korean needed</option>
@@ -163,15 +163,15 @@
         <h4 data-i18n="fLang">Language</h4>
         <label class="chk"><input type="checkbox" data-flag="english"> <span data-i18n="engOk">English OK</span></label>
         <label class="chk"><input type="checkbox" data-flag="noexp"> <span data-i18n="noExp">No experience</span></label>
-        <h4 data-i18n="fPay">Minimum pay</h4>
-        <input type="range" class="range" id="payRange" min="10320" max="30000" step="500" value="10320">
+        <h4 data-i18n="fPay" id="payRangeLbl">Minimum pay</h4>
+        <input type="range" class="range" id="payRange" aria-labelledby="payRangeLbl" min="10320" max="30000" step="500" value="10320">
         <div class="range-val" id="payVal">₩10,320+/hr</div>
         <button class="btn btn-ghost clear" id="clearBtn" data-i18n="clear">Clear filters</button>
       </aside>
       <div>
         <div class="toolbar">
           <div class="count" id="count"></div>
-          <select id="sort">
+          <select id="sort" aria-label="Sort jobs">
             <option value="new">Newest first</option>
             <option value="pay">Highest pay</option>
             <option value="korean">Least Korean needed</option>
@@ -197,20 +197,20 @@
         <h3 data-i18n="hoursH">Visa work-hours checker</h3>
         <p data-i18n="hoursP">Based on the 2026 Ministry of Justice rules for D-2 / D-4 students.</p>
         <div class="form-row">
-          <div class="inp"><label data-i18n="program">Program</label>
+          <div class="inp"><label data-i18n="program" for="hProg">Program</label>
             <select id="hProg">
               <option value="d4">Korean language course (D-4)</option>
               <option value="ug12" selected>Undergraduate — year 1–2</option>
               <option value="ug34">Undergraduate — year 3–4</option>
               <option value="grad">Master's / PhD</option>
             </select></div>
-          <div class="inp"><label data-i18n="topik">Korean level</label>
+          <div class="inp"><label data-i18n="topik" for="hTopik">Korean level</label>
             <select id="hTopik">
               <option value="0">No TOPIK</option><option value="1">TOPIK 1</option><option value="2">TOPIK 2</option>
               <option value="3" selected>TOPIK 3</option><option value="4">TOPIK 4</option><option value="5">TOPIK 5–6</option>
             </select></div>
         </div>
-        <div class="inp"><label data-i18n="planned">Hours you plan to work on weekdays (per week)</label>
+        <div class="inp"><label data-i18n="planned" for="hPlan">Hours you plan to work on weekdays (per week)</label>
           <input type="number" id="hPlan" value="20" min="0" max="60"></div>
         <div class="result" id="hResult"></div>
         <p class="fine" data-i18n="hoursFine">English-track students may use an English score instead of TOPIK. Certified universities and students with strong grades may get extra hours. Always confirm on HiKorea or with your international office.</p>
@@ -220,7 +220,7 @@
         <h3 data-i18n="payH">Pay calculator (주휴수당 included)</h3>
         <p data-i18n="payP">If you work 15+ hours a week, Korean law adds a paid weekly holiday allowance.</p>
         <div class="form-row">
-          <div class="inp"><label data-i18n="wageL">Hourly wage (₩)</label><input type="number" id="pWage" value="10320" min="0" step="10"></div>
+          <div class="inp"><label data-i18n="wageL" for="pWage">Hourly wage (₩)</label><input type="number" id="pWage" value="10320" min="0" step="10"></div>
           <div class="inp"><label data-i18n="hrsL">Hours per week</label><input type="number" id="pHours" value="20" min="0" max="60"></div>
         </div>
         <div class="result" id="pResult"></div>
@@ -410,6 +410,6 @@
 <div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
 
-<script type="module" src="script.js?v=1796000005"></script>
+<script type="module" src="script.js?v=1796000006"></script>
 </body>
 </html>

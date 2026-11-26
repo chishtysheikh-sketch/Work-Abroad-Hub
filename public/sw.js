@@ -8,7 +8,7 @@
 // Files are cached by their FULL address, ?v= included, so a new ?v= number is simply a new file.
 // VERSION must equal the ?v= number in index.html (tests/pwa.test.js checks it). Changing it
 // installs a new worker → the site shows "A new version is available · Reload".
-const VERSION = "1796000005";
+const VERSION = "1796000006";
 const SHELL = `wah-shell-v${VERSION}`;
 const RUNTIME = `wah-runtime-v${VERSION}`;
 

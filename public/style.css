@@ -621,7 +621,10 @@ body.dash #dashboard{padding:0}
 .p-date{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:8px 12px;font-size:14px;font-weight:600}
 .p-dgrid{display:grid;grid-template-columns:1fr 320px;gap:18px;align-items:start}
 .p-col{display:flex;flex-direction:column;gap:18px;min-width:0}
-.p-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.p-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.p-stat .spark{max-width:100%;min-width:0;flex-shrink:1}
+/* laptop screens: 4 cards don't fit next to the right-hand column → 2 × 2 */
+@media (min-width:1201px) and (max-width:1440px){ .p-stats{grid-template-columns:repeat(2,minmax(0,1fr))} }
 .p-stat{border-radius:16px;padding:16px;border:1px solid var(--line);background:var(--card);opacity:0;animation:popin .5s ease forwards;animation-delay:var(--d);transition:transform .2s}
 .p-stat:hover{transform:translateY(-3px);box-shadow:var(--shadow)}
 .ps-top{display:flex;gap:12px;align-items:flex-start}
@@ -739,6 +742,8 @@ body.dash #dashboard{padding:0}
 @media (prefers-reduced-motion: reduce){ *{animation:none!important;transition:none!important} .reveal,.flow-step,.p-stat{opacity:1!important;transform:none!important} .draw{stroke-dashoffset:0!important} }
 /* header fits with the new About link */
 @media (min-width:1341px) and (max-width:1480px){ .nav-links{gap:13px;font-size:14px} }
+/* logged in on a laptop screen: the menu, language, theme, Saved and the user button must fit in one row */
+@media (min-width:561px) and (max-width:1480px){ .user-btn .role-badge{display:none} .nav-right{gap:8px;min-width:0} }
 @media (max-width:1340px){
   .nav-links{display:none;position:absolute;top:68px;left:0;right:0;background:var(--card);flex-direction:column;padding:16px 22px;border-bottom:1px solid var(--line);gap:14px}
   .nav-links.open{display:flex}
@@ -1138,6 +1143,7 @@ html[lang=ne] h1,html[lang=bn] h1{line-height:1.25}
 .hf.f6{right:30%;top:4%;animation-delay:-2.5s;font-size:26px} .hf.f7{right:3%;bottom:8%;animation-delay:-1.5s}
 @keyframes hfloat{0%,100%{transform:translateY(0) rotate(-6deg)}50%{transform:translateY(-18px) rotate(8deg)}}
 @media (max-width:900px){ .hf.f1,.hf.f2,.hf.f5,.hf.f6{display:none} .hf{font-size:22px;opacity:.6} .hb{filter:blur(50px)} }
+@media (max-width:600px){ .hf{display:none} }
 
 /* rainbow text on "made simple." */
 .hero h1 em{background:linear-gradient(90deg,#ff5a36,#ff8a3d,#ec4899,#7c3aed,#2f5bea,#ff5a36);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:gradtext 7s linear infinite}

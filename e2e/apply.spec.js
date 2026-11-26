@@ -92,6 +92,11 @@ test("employer posts a job, a student applies, the employer sees the applicant",
   await emp.locator('.p-stat[data-go="applicants"]').click();                  // Total Applications
   await expect(emp.locator("#pg_applicants")).toContainText("Applicant Lee");
 
+  // refreshing the page keeps the employer in their dashboard
+  await emp.locator('#pNav [data-p="dashboard"]').click();
+  await emp.reload();
+  await expect(emp.locator("#pg_dashboard")).toContainText("Welcome back", { timeout: 15_000 });
+
   // ---- student dashboard: "In progress" opens My Applications filtered ----
   await stu.goto("/#me"); await stu.reload();                                  // a fresh page: no "Application sent" popup
   await stu.locator('.p-stat[data-sf="progress"]').click();
