@@ -1,4 +1,4 @@
-import { firebaseConfig } from "./firebase-config.js?v=1796000006";
+import { firebaseConfig } from "./firebase-config.js?v=1796000007";
 
 // Korean minimum wage per hour, by year: keep in step with src/utils/pay.js (update every January)
 const MIN_WAGE_BY_YEAR = {2025:10030, 2026:10320};
@@ -138,7 +138,7 @@ async function initBackend(){
   if(!configReady()) return startLocal("Firebase isn't set up yet (fill in firebase-config.js), so accounts and jobs are saved on this device only.");
   try{
     const base = `https://www.gstatic.com/firebasejs/${FB_VERSION}/`;
-    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1796000006"),import("./wah-fb.js?v=1796000006"),import("./wah-fb.js?v=1796000006")]);
+    const [appMod,authMod,fsMod] = await Promise.all([import("./wah-fb.js?v=1796000007"),import("./wah-fb.js?v=1796000007"),import("./wah-fb.js?v=1796000007")]);
     const app = appMod.initializeApp(firebaseConfig);
     backend.fb = {...authMod, ...fsMod};
     backend.auth = authMod.getAuth(app);
@@ -4292,3 +4292,43 @@ initBackend().then(()=>{
     if(location.hash==="#dashboard" && account && account.loggedIn && account.role==="employer") showView("dashboard");
   },200);
 });
+
+/* ===== FIX: "Message employer" always opens the chat ===== */
+startChat = async function({employerUid, studentUid, employerName, studentName, jobTitle}){
+  console.log("[chat] start", {employerUid, studentUid, mode: backend.mode});
+  if(backend.mode !== "firebase"){ toast(L("Still connecting to the server — try again in a moment.","서버에 연결 중이에요. 잠시 후 다시 시도하세요.")); return; }
+  if(!chatOn()){ closeModal(); openAuth("login"); return; }
+  if(!employerUid || !studentUid){ toast(L("This job isn't linked to an employer account.","이 공고는 기업 계정과 연결되어 있지 않아요.")); return; }
+  if(employerUid === studentUid){ toast(L("You can't message yourself.","자기 자신에게는 메시지를 보낼 수 없어요.")); return; }
+  const id = chatIdOf(employerUid, studentUid), F = backend.fb, now = Date.now();
+  const data = {employerUid, studentUid, jobTitle: String(jobTitle||"").slice(0,80), updatedAt: now};
+  if(employerName) data.employerName = String(employerName).slice(0,60);
+  if(studentName)  data.studentName  = String(studentName).slice(0,60);
+  try{
+    await F.setDoc(F.doc(backend.db, "chats", id), data, {merge:true});
+  }catch(e){
+    console.error("[chat] start failed", e);
+    toast(L("Couldn't open chat: ","채팅을 열 수 없어요: ") + (e && (e.message || e.code) || "unknown error"));
+    return;
+  }
+  closeModal();
+  if(typeof ensureChatUI === "function") ensureChatUI();
+  const panel = $("chatPanel"); if(panel) panel.style.display = "";
+  const c = chat.list.find(x => x.id === id) || {id, ...data};
+  openThread(c);
+  setTimeout(()=>{ const inp = $("chatInput"); if(inp) inp.focus(); }, 80);
+};
+
+document.addEventListener("click", e => {
+  const b = e.target.closest("#msgEmployer"); if(!b) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  const m = $("modal");
+  const id = (m && m.dataset.jobId) || window.__openJobId;
+  const j = JOBS.find(x => String(x.id) === String(id));
+  if(!j){ toast(L("Please reopen the job and try again.","공고를 다시 열고 시도하세요.")); return; }
+  startChat({employerUid: j.owner, studentUid: backend.uid, employerName: j.co,
+             studentName: (account.profile && account.profile.name) || "", jobTitle: j.title});
+}, true);
+
+const _openJobFixMsg = openJob;
+openJob = function(id){ window.__openJobId = id; _openJobFixMsg(id); const m = $("modal"); if(m) m.dataset.jobId = id; };

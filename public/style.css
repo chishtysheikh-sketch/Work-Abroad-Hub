@@ -1297,3 +1297,6 @@ html:not([data-theme="dark"]) .lp-logo .logo-mark{color:#059669}
 :root[data-theme="dark"] #verifyBar{background:#3a2a10;color:#ffd79a;border-color:#6b4a14}
 .field-note{display:block;color:var(--muted);font-size:12px;margin-top:4px}
 .pform input[readonly]{opacity:.75;cursor:not-allowed}
+
+.chat-fab{z-index:150}
+.chat-panel{z-index:160}
